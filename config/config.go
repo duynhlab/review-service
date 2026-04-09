@@ -92,9 +92,9 @@ type DatabaseConfig struct {
 	Host           string // Database host - from DB_HOST env
 	Port           string // Database port - from DB_PORT env (default: "5432")
 	Name           string // Database name - from DB_NAME env
-	User           string // Database user - from DB_USER env
-	Password       string // Database password - from DB_PASSWORD env
-	SSLMode        string // SSL mode - from DB_SSLMODE env (default: "disable")
+	User           string `json:"user"`     // Database user - from DB_USER env
+	Password       string `json:"-"`        // Database password - from DB_PASSWORD env
+	SSLMode        string `json:"sslMode"`  // SSL mode - from DB_SSLMODE env (default: "disable")
 	MaxConnections int    // Max connections - from DB_POOL_MAX_CONNECTIONS env (default: 25)
 	PoolMode       string // Pool mode - from DB_POOL_MODE env (optional)
 	PoolerType     string // Pooler type - from DB_POOLER_TYPE env (optional)
