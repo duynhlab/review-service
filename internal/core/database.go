@@ -14,13 +14,13 @@ import (
 
 // DatabaseConfig holds database connection configuration
 type DatabaseConfig struct {
-	Host           string // DB_HOST - PostgreSQL host
-	Port           string // DB_PORT - PostgreSQL port (default: 5432)
-	Name           string // DB_NAME - Database name
-	User           string // DB_USER - Database user
-	Password       string // DB_PASSWORD - Database password
-	SSLMode        string // DB_SSLMODE - SSL mode
-	MaxConnections int    // DB_POOL_MAX_CONNECTIONS - Max pool connections
+	Host           string `json:"host"`            // DB_HOST - PostgreSQL host
+	Port           string `json:"port"`            // DB_PORT - PostgreSQL port (default: 5432)
+	Name           string `json:"name"`            // DB_NAME - Database name
+	User           string `json:"user"`            // DB_USER - Database user
+	Password       string `json:"-"`               // DB_PASSWORD - Database password
+	SSLMode        string `json:"sslMode"`         // DB_SSLMODE - SSL mode
+	MaxConnections int    `json:"maxConnections"`  // DB_POOL_MAX_CONNECTIONS - Max pool connections
 }
 
 var globalPool *pgxpool.Pool
