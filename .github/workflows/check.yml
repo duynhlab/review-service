@@ -24,14 +24,17 @@ jobs:
       lint: true
     secrets: inherit
 
-  sonar:
-    needs: go-check
+  gitleaks:
+    uses: duyhenryer/shared-workflows/.github/workflows/gitleaks.yml@main
     permissions:
       contents: read
-      pull-requests: read
+      security-events: write
+
+  sonar:
+    needs: [go-check, gitleaks]
     uses: duyhenryer/shared-workflows/.github/workflows/sonarqube.yml@main
     with:
-      project-key: 'duynhlab_review-service'
+      project-key: 'duynhlab_${{ github.event.repository.name }}'
       organization: 'duynhlab'
       fail-on-quality-gate: false
     secrets:
@@ -39,7 +42,7 @@ jobs:
 
   notify:
     if: always()
-    needs: [pr-checks, go-check, sonar]
+    needs: [pr-checks, go-check, gitleaks, sonar]
     uses: duyhenryer/shared-workflows/.github/workflows/status.yml@main
     with:
       slack_channel_id: "C0AD82A9A74"
