@@ -20,14 +20,17 @@ jobs:
       lint: true
     secrets: inherit
 
-  sonar:
-    needs: go-check
+  gitleaks:
+    uses: duyhenryer/shared-workflows/.github/workflows/gitleaks.yml@main
     permissions:
       contents: read
-      pull-requests: read
+      security-events: write
+
+  sonar:
+    needs: [go-check, gitleaks]
     uses: duyhenryer/shared-workflows/.github/workflows/sonarqube.yml@main
     with:
-      project-key: 'duynhlab_review-service'
+      project-key: 'duynhlab_${{ github.event.repository.name }}'
       organization: 'duynhlab'
       fail-on-quality-gate: false
     secrets:
@@ -37,21 +40,25 @@ jobs:
     needs: [go-check, sonar]
     uses: duyhenryer/shared-workflows/.github/workflows/docker-build-go.yml@main
     with:
-      image-name: 'review'
+      image-name: ${{ github.event.repository.name }}
       push: true
+      scan-before-push: true
+      scan-severity: 'CRITICAL,HIGH'
+      scan-exit-code: '1'
     secrets: inherit
     permissions:
       contents: read
       packages: write
       actions: read
 
-  trivy-scan:
+  trivy-report:
     needs: [docker-build]
+    if: needs.docker-build.outputs.scan-status == 'pass'
     uses: duyhenryer/shared-workflows/.github/workflows/trivy-scan.yml@main
     with:
-      image-ref: ghcr.io/${{ github.repository }}/review@${{ needs.docker-build.outputs.digest }}
-      severity: 'CRITICAL,HIGH'
-      exit-code: '1'
+      image-ref: ghcr.io/${{ github.repository }}/${{ github.event.repository.name }}@${{ needs.docker-build.outputs.digest }}
+      severity: 'CRITICAL,HIGH,MEDIUM'
+      exit-code: '0'
       ignore-unfixed: true
     secrets: inherit
     permissions:
@@ -60,7 +67,7 @@ jobs:
       security-events: write
 
   docker-sign:
-    needs: [docker-build, trivy-scan]
+    needs: [docker-build]
     uses: duyhenryer/shared-workflows/.github/workflows/docker-sign.yml@main
     with:
       tags: ${{ needs.docker-build.outputs.tags }}
@@ -75,10 +82,13 @@ jobs:
     needs: [go-check, sonar]
     uses: duyhenryer/shared-workflows/.github/workflows/docker-build-go.yml@main
     with:
-      image-name: 'review-init'
+      image-name: '${{ github.event.repository.name }}-init'
       dockerfile: 'db/migrations/Dockerfile'
       context: 'db/migrations'
       push: true
+      scan-before-push: true
+      scan-severity: 'CRITICAL,HIGH'
+      scan-exit-code: '1'
     secrets: inherit
     permissions:
       contents: read
@@ -87,7 +97,7 @@ jobs:
 
   notify:
     if: always()
-    needs: [go-check, sonar, docker-build, trivy-scan, docker-sign, docker-db-init]
+    needs: [go-check, gitleaks, sonar, docker-build, trivy-report, docker-sign, docker-db-init]
     uses: duyhenryer/shared-workflows/.github/workflows/status.yml@main
     with:
       slack_channel_id: "C0AD82A9A74"
