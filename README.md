@@ -11,12 +11,12 @@ Product review microservice for ratings and comments.
 
 ## API Endpoints
 
-> **Browser callers** hit `https://gateway.duynhne.me/review/v1/{public,private}/reviews…`; Kong rewrites to the cluster paths below. See [homelab naming convention](https://github.com/duynhlab/homelab/blob/main/docs/api/api-naming-convention.md).
+All routes follow Variant A naming — single path for browser and in-cluster callers. See [homelab naming convention](https://github.com/duynhlab/homelab/blob/main/docs/api/api-naming-convention.md).
 
-| Method | Cluster path | Edge path (via gateway) |
-|--------|--------------|-------------------------|
-| `GET` | `/api/v1/reviews?product_id={id}` | `/review/v1/public/reviews?product_id={id}` |
-| `POST` | `/api/v1/reviews` | `/review/v1/private/reviews` |
+| Method | Path | Audience |
+|--------|------|----------|
+| `GET` | `/review/v1/public/reviews?product_id={id}` | public (also called by product-service for aggregation) |
+| `POST` | `/review/v1/private/reviews` | private |
 
 ## Tech Stack
 

@@ -140,20 +140,9 @@ go build ./... && go test ./... && golangci-lint run --timeout=10m
 
 ## 🔌 API Reference
 
-### Cluster paths (what this service mounts)
+| Method | Path | Audience | Description |
+|--------|------|----------|-------------|
+| `GET` | `/review/v1/public/reviews?product_id={id}` | public | List reviews for a product (`product_id` query param required). Also called by `product-service` for the product-details aggregation. |
+| `POST` | `/review/v1/private/reviews` | private | Create review — `user_id` required in body; 409 if duplicate. **JWT not yet enforced in handler — flagged for hardening.** |
 
-| Method | Cluster path | Audience | Description |
-|--------|--------------|----------|-------------|
-| `GET` | `/api/v1/reviews?product_id={id}` | public | List reviews for a product (`product_id` query param required) |
-| `POST` | `/api/v1/reviews` | private | Create review — `user_id` required in body; 409 if duplicate. **JWT not yet enforced in handler — flagged for hardening.** |
-
-### Edge paths (what the browser sends)
-
-Kong in the `review` namespace rewrites `/review/v1/{audience}/reviews/...` → `/api/v1/reviews/...`.
-
-| Edge path (browser) | → Cluster path |
-|---------------------|----------------|
-| `GET gateway.duynhne.me/review/v1/public/reviews?product_id=…` | `GET /api/v1/reviews?product_id=…` |
-| `POST gateway.duynhne.me/review/v1/private/reviews` | `POST /api/v1/reviews` |
-
-Convention + rewrite rule: [`homelab/docs/api/api-naming-convention.md`](https://github.com/duynhlab/homelab/blob/main/docs/api/api-naming-convention.md).
+Full convention + inventory: [`homelab/docs/api/api-naming-convention.md`](https://github.com/duynhlab/homelab/blob/main/docs/api/api-naming-convention.md).
