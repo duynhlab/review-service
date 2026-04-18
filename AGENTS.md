@@ -140,7 +140,9 @@ go build ./... && go test ./... && golangci-lint run --timeout=10m
 
 ## 🔌 API Reference
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/api/v1/reviews?product_id={id}` | Get reviews for product |
-| `POST` | `/api/v1/reviews` | Create review (409 if duplicate) |
+| Method | Path | Audience | Description |
+|--------|------|----------|-------------|
+| `GET` | `/review/v1/public/reviews?product_id={id}` | public | List reviews for a product (`product_id` query param required). Also called by `product-service` for the product-details aggregation. |
+| `POST` | `/review/v1/private/reviews` | private | Create review — `user_id` required in body; 409 if duplicate. **JWT not yet enforced in handler — flagged for hardening.** |
+
+Full convention + inventory: [`homelab/docs/api/api-naming-convention.md`](https://github.com/duynhlab/homelab/blob/main/docs/api/api-naming-convention.md).

@@ -111,11 +111,9 @@ func setupServer(cfg *config.Config, logger *zap.Logger, isShuttingDown *atomic.
 	})
 	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
 
-	apiV1 := r.Group("/api/v1")
-	{
-		apiV1.GET("/reviews", handler.ListReviews)
-		apiV1.POST("/reviews", handler.CreateReview)
-	}
+	// Review v1 routes — Variant A edge naming (see api-naming-convention.md)
+	r.GET("/review/v1/public/reviews", handler.ListReviews)
+	r.POST("/review/v1/private/reviews", handler.CreateReview)
 
 	return &http.Server{
 		Addr:              ":" + cfg.Service.Port,

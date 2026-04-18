@@ -11,10 +11,12 @@ Product review microservice for ratings and comments.
 
 ## API Endpoints
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/api/v1/reviews?product_id={id}` | Get reviews |
-| `POST` | `/api/v1/reviews` | Create review |
+All routes follow Variant A naming — single path for browser and in-cluster callers. See [homelab naming convention](https://github.com/duynhlab/homelab/blob/main/docs/api/api-naming-convention.md).
+
+| Method | Path | Audience |
+|--------|------|----------|
+| `GET` | `/review/v1/public/reviews?product_id={id}` | public (also called by product-service for aggregation) |
+| `POST` | `/review/v1/private/reviews` | private |
 
 ## Tech Stack
 
