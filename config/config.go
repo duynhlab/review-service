@@ -42,6 +42,7 @@ type Config struct {
 	Logging         LoggingConfig   // Structured logging (Zap)
 	Metrics         MetricsConfig   // Prometheus metrics
 	Database        DatabaseConfig  // PostgreSQL database configuration
+	AuthServiceURL  string          // Auth service URL for token introspection - from AUTH_SERVICE_URL env
 	ShutdownTimeout int             // Graceful shutdown timeout in seconds - from SHUTDOWN_TIMEOUT env (default: 10)
 	// ReadinessDrainDelay: delay after failing readiness before shutting down the HTTP server.
 	// This gives Kubernetes/Service routing time to stop sending new traffic.
@@ -156,6 +157,7 @@ func Load() *Config {
 			PoolMode:       getEnv("DB_POOL_MODE", ""),
 			PoolerType:     getEnv("DB_POOLER_TYPE", ""),
 		},
+		AuthServiceURL:  getEnv("AUTH_SERVICE_URL", "http://auth.auth.svc.cluster.local:8080"),
 		ShutdownTimeout: getEnvDurationSeconds("SHUTDOWN_TIMEOUT", 10),
 		ReadinessDrainDelay: getEnvDurationSecondsWithMax("READINESS_DRAIN_DELAY", 5, 30),
 	}

@@ -45,6 +45,10 @@ func (h *ReviewHandler) ListReviews(c *gin.Context) {
 	if err != nil {
 		span.RecordError(err)
 		zapLogger.Error("Failed to list reviews", zap.Error(err), zap.String("product_id", productID))
+		if errors.Is(err, logicv1.ErrInvalidInput) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid product_id"})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
 		return
 	}
@@ -68,9 +72,12 @@ func (h *ReviewHandler) CreateReview(c *gin.Context) {
 		span.SetAttributes(attribute.Bool("request.valid", false))
 		span.RecordError(err)
 		zapLogger.Error("Invalid request", zap.Error(err))
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
 		return
 	}
+
+	// Identity is taken from the authenticated context, never the request body.
+	req.UserID = c.GetString("user_id")
 
 	span.SetAttributes(attribute.Bool("request.valid", true))
 	review, err := h.service.CreateReview(ctx, req)
@@ -79,6 +86,8 @@ func (h *ReviewHandler) CreateReview(c *gin.Context) {
 		zapLogger.Error("Failed to create review", zap.Error(err))
 
 		switch {
+		case errors.Is(err, logicv1.ErrInvalidInput):
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid input"})
 		case errors.Is(err, logicv1.ErrInvalidRating):
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid rating (must be 1-5)"})
 		case errors.Is(err, logicv1.ErrDuplicateReview):

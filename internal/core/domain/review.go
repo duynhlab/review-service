@@ -14,8 +14,8 @@ type Review struct {
 
 type CreateReviewRequest struct {
 	ProductID string `json:"product_id" binding:"required"`
-	UserID    string `json:"user_id" binding:"required"`
-	Rating    int    `json:"rating" binding:"required,min=1,max=5"`
+	UserID    string `json:"user_id"`
+	Rating    int    `json:"rating" binding:"min=1,max=5"`
 	Title     string `json:"title"`
-	Comment   string `json:"comment"`
+	Comment   string `json:"comment" binding:"required"`
 }

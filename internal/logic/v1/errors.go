@@ -31,6 +31,10 @@ var (
 	// HTTP Status: 400 Bad Request
 	ErrInvalidRating = errors.New("invalid rating")
 
+	// ErrInvalidInput indicates a malformed input value (e.g. non-numeric ID).
+	// HTTP Status: 400 Bad Request
+	ErrInvalidInput = errors.New("invalid input")
+
 	// ErrUnauthorized indicates the user is not authorized to perform the operation.
 	// HTTP Status: 403 Forbidden
 	ErrUnauthorized = errors.New("unauthorized access")

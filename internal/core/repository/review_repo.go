@@ -9,8 +9,12 @@ import (
 
 	"github.com/duynhne/review-service/internal/core/domain"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+// pgUniqueViolation is the PostgreSQL SQLSTATE for a unique_violation error.
+const pgUniqueViolation = "23505"
 
 type pgxReviewRepository struct {
 	pool *pgxpool.Pool
@@ -75,6 +79,10 @@ func (r *pgxReviewRepository) CreateReview(ctx context.Context, review domain.Re
 
 	err := r.pool.QueryRow(ctx, query, prodID, userID, review.Rating, review.Title, review.Comment).Scan(&reviewID, &createdAt)
 	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == pgUniqueViolation {
+			return nil, domain.ErrDuplicateReview
+		}
 		return nil, fmt.Errorf("insert review: %w", err)
 	}
 
