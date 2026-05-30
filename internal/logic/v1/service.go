@@ -2,6 +2,7 @@ package v1
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 
@@ -29,7 +30,7 @@ func (s *ReviewService) ListReviews(ctx context.Context, productID string) ([]do
 	// Convert productID to int
 	prodID, err := strconv.Atoi(productID)
 	if err != nil {
-		return nil, fmt.Errorf("invalid product_id %q: %w", productID, err)
+		return nil, fmt.Errorf("invalid product_id %q: %w", productID, ErrInvalidInput)
 	}
 
 	reviews, err := s.repo.ListReviewsByProduct(ctx, prodID)
@@ -58,11 +59,11 @@ func (s *ReviewService) CreateReview(ctx context.Context, req domain.CreateRevie
 	// Convert IDs to int
 	productID, err := strconv.Atoi(req.ProductID)
 	if err != nil {
-		return nil, fmt.Errorf("invalid product id %q: %w", req.ProductID, ErrInvalidRating)
+		return nil, fmt.Errorf("invalid product id %q: %w", req.ProductID, ErrInvalidInput)
 	}
 	userID, err := strconv.Atoi(req.UserID)
 	if err != nil {
-		return nil, fmt.Errorf("invalid user id %q: %w", req.UserID, ErrInvalidRating)
+		return nil, fmt.Errorf("invalid user id %q: %w", req.UserID, ErrInvalidInput)
 	}
 
 	// Check for duplicate review
@@ -87,6 +88,12 @@ func (s *ReviewService) CreateReview(ctx context.Context, req domain.CreateRevie
 	createdReview, err := s.repo.CreateReview(ctx, review)
 	if err != nil {
 		span.RecordError(err)
+		// Race-safe duplicate detection: the unique constraint may reject a
+		// concurrent insert that slipped past the pre-check above.
+		if errors.Is(err, domain.ErrDuplicateReview) {
+			span.SetAttributes(attribute.Bool("review.created", false))
+			return nil, fmt.Errorf("create review for product %q: %w", req.ProductID, ErrDuplicateReview)
+		}
 		return nil, fmt.Errorf("insert review: %w", err)
 	}
 

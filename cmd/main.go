@@ -59,7 +59,9 @@ func main() {
 	service := logicv1.NewReviewService(repo)
 	handler := v1.NewReviewHandler(service)
 
-	srv := setupServer(cfg, logger, &isShuttingDown, handler)
+	authClient := middleware.NewAuthClient(cfg.AuthServiceURL)
+
+	srv := setupServer(cfg, logger, authClient, &isShuttingDown, handler)
 	runGracefulShutdown(cfg, srv, tp, pool, logger, &isShuttingDown)
 }
 
@@ -92,7 +94,7 @@ func initProfiling(cfg *config.Config, logger *zap.Logger) {
 	logger.Info("Profiling initialized", zap.String("endpoint", cfg.Profiling.Endpoint))
 }
 
-func setupServer(cfg *config.Config, logger *zap.Logger, isShuttingDown *atomic.Bool, handler *v1.ReviewHandler) *http.Server {
+func setupServer(cfg *config.Config, logger *zap.Logger, authClient *middleware.AuthClient, isShuttingDown *atomic.Bool, handler *v1.ReviewHandler) *http.Server {
 	r := gin.Default()
 
 	r.Use(middleware.TracingMiddleware())
@@ -113,7 +115,13 @@ func setupServer(cfg *config.Config, logger *zap.Logger, isShuttingDown *atomic.
 
 	// Review v1 routes — Variant A edge naming (see api-naming-convention.md)
 	r.GET("/review/v1/public/reviews", handler.ListReviews)
-	r.POST("/review/v1/private/reviews", handler.CreateReview)
+
+	// Private routes require JWT validation via the auth service.
+	privateReviews := r.Group("/review/v1/private")
+	privateReviews.Use(middleware.AuthMiddleware(authClient))
+	{
+		privateReviews.POST("/reviews", handler.CreateReview)
+	}
 
 	return &http.Server{
 		Addr:              ":" + cfg.Service.Port,
