@@ -4,9 +4,9 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/duynhne/review-service/internal/core/domain"
-	logicv1 "github.com/duynhne/review-service/internal/logic/v1"
-	"github.com/duynhne/review-service/middleware"
+	"github.com/duynhlab/review-service/internal/core/domain"
+	logicv1 "github.com/duynhlab/review-service/internal/logic/v1"
+	"github.com/duynhlab/review-service/middleware"
 	"github.com/gin-gonic/gin"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"

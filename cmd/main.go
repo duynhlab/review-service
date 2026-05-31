@@ -13,15 +13,15 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.uber.org/zap"
 
-	"github.com/duynhne/pkg/authmw"
-	"github.com/duynhne/pkg/grpcx"
-	authv1 "github.com/duynhne/pkg/proto/auth/v1"
-	"github.com/duynhne/review-service/config"
-	database "github.com/duynhne/review-service/internal/core"
-	"github.com/duynhne/review-service/internal/core/repository"
-	logicv1 "github.com/duynhne/review-service/internal/logic/v1"
-	v1 "github.com/duynhne/review-service/internal/web/v1"
-	"github.com/duynhne/review-service/middleware"
+	"github.com/duynhlab/pkg/authmw"
+	"github.com/duynhlab/pkg/grpcx"
+	authv1 "github.com/duynhlab/pkg/proto/auth/v1"
+	"github.com/duynhlab/review-service/config"
+	database "github.com/duynhlab/review-service/internal/core"
+	"github.com/duynhlab/review-service/internal/core/repository"
+	logicv1 "github.com/duynhlab/review-service/internal/logic/v1"
+	v1 "github.com/duynhlab/review-service/internal/web/v1"
+	"github.com/duynhlab/review-service/middleware"
 )
 
 func main() {
