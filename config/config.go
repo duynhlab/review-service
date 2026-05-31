@@ -37,6 +37,7 @@ const defaultServiceName = "unknown"
 // Config holds all configuration for a microservice
 type Config struct {
 	Service         ServiceConfig   // Service-specific settings (port, name, version)
+	GRPC            GRPCConfig      // Internal gRPC server (east-west transport)
 	Tracing         TracingConfig   // OpenTelemetry/Tempo configuration
 	Profiling       ProfilingConfig // Pyroscope continuous profiling
 	Logging         LoggingConfig   // Structured logging (Zap)
@@ -48,6 +49,13 @@ type Config struct {
 	// This gives Kubernetes/Service routing time to stop sending new traffic.
 	// From READINESS_DRAIN_DELAY env (default: 5s, max: 30s).
 	ReadinessDrainDelay int
+}
+
+// GRPCConfig defines the internal gRPC server (east-west only). gRPC is the
+// official east-west transport, so the server always runs; only the port is
+// configurable. HTTP :8080 is unaffected.
+type GRPCConfig struct {
+	Port string // GRPC_PORT (default "9090")
 }
 
 // ServiceConfig defines basic service configuration
@@ -125,6 +133,9 @@ func Load() *Config {
 			Port:    getEnv("PORT", "8080"),
 			Version: getEnv("VERSION", "dev"),
 			Env:     getEnv("ENV", "development"),
+		},
+		GRPC: GRPCConfig{
+			Port: getEnv("GRPC_PORT", "9090"),
 		},
 		Tracing: TracingConfig{
 			Enabled:            getEnvBool("TRACING_ENABLED", true),
