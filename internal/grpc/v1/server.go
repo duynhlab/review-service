@@ -60,7 +60,7 @@ func toProto(r *domain.Review) *reviewv1.Review {
 		Id:        r.ID,
 		ProductId: r.ProductID,
 		UserId:    r.UserID,
-		Rating:    int32(r.Rating),
+		Rating:    int32(r.Rating), //nolint:gosec // G115: rating is a bounded 1-5 value (DB CHECK), no overflow
 		Title:     r.Title,
 		Comment:   r.Comment,
 		CreatedAt: createdAt,
