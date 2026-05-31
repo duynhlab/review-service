@@ -13,6 +13,9 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.uber.org/zap"
 
+	"github.com/duynhne/pkg/authmw"
+	"github.com/duynhne/pkg/grpcx"
+	authv1 "github.com/duynhne/pkg/proto/auth/v1"
 	"github.com/duynhne/review-service/config"
 	database "github.com/duynhne/review-service/internal/core"
 	"github.com/duynhne/review-service/internal/core/repository"
@@ -59,7 +62,15 @@ func main() {
 	service := logicv1.NewReviewService(repo)
 	handler := v1.NewReviewHandler(service)
 
-	authClient := middleware.NewAuthClient(cfg.AuthServiceURL)
+	// Validate tokens against auth over gRPC (shared fail-closed authmw).
+	authConn, err := grpcx.Dial(cfg.AuthGRPCAddr)
+	if err != nil {
+		logger.Error("Failed to dial auth gRPC", zap.String("addr", cfg.AuthGRPCAddr), zap.Error(err))
+		return
+	}
+	defer func() { _ = authConn.Close() }()
+	authClient := authv1.NewAuthServiceClient(authConn)
+	logger.Info("Auth gRPC client initialized", zap.String("auth_grpc_addr", cfg.AuthGRPCAddr))
 
 	srv := setupServer(cfg, logger, authClient, &isShuttingDown, handler)
 	runGracefulShutdown(cfg, srv, tp, pool, logger, &isShuttingDown)
@@ -94,7 +105,7 @@ func initProfiling(cfg *config.Config, logger *zap.Logger) {
 	logger.Info("Profiling initialized", zap.String("endpoint", cfg.Profiling.Endpoint))
 }
 
-func setupServer(cfg *config.Config, logger *zap.Logger, authClient *middleware.AuthClient, isShuttingDown *atomic.Bool, handler *v1.ReviewHandler) *http.Server {
+func setupServer(cfg *config.Config, logger *zap.Logger, authClient authv1.AuthServiceClient, isShuttingDown *atomic.Bool, handler *v1.ReviewHandler) *http.Server {
 	r := gin.Default()
 
 	r.Use(middleware.TracingMiddleware())
@@ -118,7 +129,7 @@ func setupServer(cfg *config.Config, logger *zap.Logger, authClient *middleware.
 
 	// Private routes require JWT validation via the auth service.
 	privateReviews := r.Group("/review/v1/private")
-	privateReviews.Use(middleware.AuthMiddleware(authClient))
+	privateReviews.Use(authmw.Middleware(authClient))
 	{
 		privateReviews.POST("/reviews", handler.CreateReview)
 	}

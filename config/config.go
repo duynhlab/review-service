@@ -42,7 +42,7 @@ type Config struct {
 	Logging         LoggingConfig   // Structured logging (Zap)
 	Metrics         MetricsConfig   // Prometheus metrics
 	Database        DatabaseConfig  // PostgreSQL database configuration
-	AuthServiceURL  string          // Auth service URL for token introspection - from AUTH_SERVICE_URL env
+	AuthGRPCAddr    string          // Auth service gRPC target for token validation - from AUTH_GRPC_ADDR env
 	ShutdownTimeout int             // Graceful shutdown timeout in seconds - from SHUTDOWN_TIMEOUT env (default: 10)
 	// ReadinessDrainDelay: delay after failing readiness before shutting down the HTTP server.
 	// This gives Kubernetes/Service routing time to stop sending new traffic.
@@ -93,9 +93,9 @@ type DatabaseConfig struct {
 	Host           string // Database host - from DB_HOST env
 	Port           string // Database port - from DB_PORT env (default: "5432")
 	Name           string // Database name - from DB_NAME env
-	User           string `json:"user"`     // Database user - from DB_USER env
-	Password       string `json:"-"`        // Database password - from DB_PASSWORD env
-	SSLMode        string `json:"sslMode"`  // SSL mode - from DB_SSLMODE env (default: "disable")
+	User           string `json:"user"`    // Database user - from DB_USER env
+	Password       string `json:"-"`       // Database password - from DB_PASSWORD env
+	SSLMode        string `json:"sslMode"` // SSL mode - from DB_SSLMODE env (default: "disable")
 	MaxConnections int    // Max connections - from DB_POOL_MAX_CONNECTIONS env (default: 25)
 	PoolMode       string // Pool mode - from DB_POOL_MODE env (optional)
 	PoolerType     string // Pooler type - from DB_POOLER_TYPE env (optional)
@@ -157,8 +157,8 @@ func Load() *Config {
 			PoolMode:       getEnv("DB_POOL_MODE", ""),
 			PoolerType:     getEnv("DB_POOLER_TYPE", ""),
 		},
-		AuthServiceURL:  getEnv("AUTH_SERVICE_URL", "http://auth.auth.svc.cluster.local:8080"),
-		ShutdownTimeout: getEnvDurationSeconds("SHUTDOWN_TIMEOUT", 10),
+		AuthGRPCAddr:        getEnv("AUTH_GRPC_ADDR", "dns:///auth.auth.svc.cluster.local:9090"),
+		ShutdownTimeout:     getEnvDurationSeconds("SHUTDOWN_TIMEOUT", 10),
 		ReadinessDrainDelay: getEnvDurationSecondsWithMax("READINESS_DRAIN_DELAY", 5, 30),
 	}
 }
@@ -190,7 +190,7 @@ func (c *Config) validateService() []string {
 		errs = append(errs, "PORT is required (e.g., '8080')")
 	}
 	if _, err := strconv.Atoi(c.Service.Port); err != nil {
-		errs = append(errs, "PORT must be a valid number, got: " + c.Service.Port)
+		errs = append(errs, "PORT must be a valid number, got: "+c.Service.Port)
 	}
 	validEnvs := []string{"development", "dev", "staging", "stage", "production", "prod"}
 	if !contains(validEnvs, c.Service.Env) {
@@ -259,7 +259,7 @@ func (c *Config) validateDatabase() []string {
 	}
 	if c.Database.Port != "" {
 		if _, err := strconv.Atoi(c.Database.Port); err != nil {
-			errs = append(errs, "DB_PORT must be a valid number, got: " + c.Database.Port)
+			errs = append(errs, "DB_PORT must be a valid number, got: "+c.Database.Port)
 		}
 	}
 	return errs
