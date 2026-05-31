@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"net"
 	"net/http"
 	"os/signal"
 	"sync/atomic"
@@ -12,13 +13,16 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.uber.org/zap"
+	"google.golang.org/grpc"
 
 	"github.com/duynhlab/pkg/authmw"
 	"github.com/duynhlab/pkg/grpcx"
 	authv1 "github.com/duynhlab/pkg/proto/auth/v1"
+	reviewv1 "github.com/duynhlab/pkg/proto/review/v1"
 	"github.com/duynhlab/review-service/config"
 	database "github.com/duynhlab/review-service/internal/core"
 	"github.com/duynhlab/review-service/internal/core/repository"
+	grpcv1 "github.com/duynhlab/review-service/internal/grpc/v1"
 	logicv1 "github.com/duynhlab/review-service/internal/logic/v1"
 	v1 "github.com/duynhlab/review-service/internal/web/v1"
 	"github.com/duynhlab/review-service/middleware"
@@ -72,8 +76,37 @@ func main() {
 	authClient := authv1.NewAuthServiceClient(authConn)
 	logger.Info("Auth gRPC client initialized", zap.String("auth_grpc_addr", cfg.AuthGRPCAddr))
 
+	// Internal gRPC server (east-west). HTTP :8080 is unaffected.
+	grpcSrv := startGRPC(cfg, logger, service)
+
 	srv := setupServer(cfg, logger, authClient, &isShuttingDown, handler)
-	runGracefulShutdown(cfg, srv, tp, pool, logger, &isShuttingDown)
+	runGracefulShutdown(cfg, srv, grpcSrv, tp, pool, logger, &isShuttingDown)
+}
+
+// startGRPC starts the internal gRPC server on cfg.GRPC.Port, serving
+// ReviewService alongside the HTTP listener (dual-port). gRPC is the official
+// east-west transport, so it always runs; it returns nil only if the listener
+// can't bind. The server uses the shared grpcx bootstrap (OpenTelemetry, health,
+// reflection).
+func startGRPC(cfg *config.Config, logger *zap.Logger, svc *logicv1.ReviewService) *grpc.Server {
+	lc := net.ListenConfig{}
+	lis, err := lc.Listen(context.Background(), "tcp", ":"+cfg.GRPC.Port)
+	if err != nil {
+		logger.Error("Failed to listen for gRPC", zap.String("port", cfg.GRPC.Port), zap.Error(err))
+		return nil
+	}
+
+	grpcSrv, _ := grpcx.NewServer()
+	reviewv1.RegisterReviewServiceServer(grpcSrv, grpcv1.NewServer(svc))
+
+	go func() {
+		logger.Info("Starting gRPC server", zap.String("port", cfg.GRPC.Port))
+		if err := grpcSrv.Serve(lis); err != nil {
+			logger.Error("gRPC server error", zap.Error(err))
+		}
+	}()
+
+	return grpcSrv
 }
 
 func initTracing(cfg *config.Config, logger *zap.Logger) interface{ Shutdown(context.Context) error } {
@@ -144,6 +177,7 @@ func setupServer(cfg *config.Config, logger *zap.Logger, authClient authv1.AuthS
 func runGracefulShutdown(
 	cfg *config.Config,
 	srv *http.Server,
+	grpcSrv *grpc.Server,
 	tp interface{ Shutdown(context.Context) error },
 	pool interface{ Close() },
 	logger *zap.Logger,
@@ -179,6 +213,11 @@ func runGracefulShutdown(
 		logger.Error("HTTP server shutdown error", zap.Error(err))
 	} else {
 		logger.Info("HTTP server shutdown complete")
+	}
+
+	if grpcSrv != nil {
+		grpcSrv.GracefulStop()
+		logger.Info("gRPC server shutdown complete")
 	}
 
 	pool.Close()
