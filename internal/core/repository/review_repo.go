@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/duynhne/review-service/internal/core/domain"
+	"github.com/duynhlab/review-service/internal/core/domain"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
