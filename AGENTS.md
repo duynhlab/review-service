@@ -6,6 +6,19 @@
 
 Product review microservice. Manages product reviews and ratings.
 
+Module path: `github.com/duynhlab/review-service`.
+
+### Transport roles
+
+- **HTTP server** (`:8080`) — north-south, browser + in-cluster callers (Variant A naming).
+- **gRPC server** (`:9090`) — east-west. Exposes `review.v1.ReviewService/GetProductReviews`,
+  called by `product-service` for product-details aggregation. Always runs alongside HTTP.
+- **gRPC client** — dials the auth service (`auth.v1.AuthService/GetMe`, `AUTH_GRPC_ADDR`)
+  to validate JWTs on `private` routes via `pkg/authmw`.
+
+gRPC is the official east-west transport. Server + client are built via `pkg/grpcx`
+(OpenTelemetry stats handler, gRPC health service, server reflection).
+
 ## 🏗️ Architecture Guidelines
 
 ### 3-Layer Architecture
@@ -13,8 +26,13 @@ Product review microservice. Manages product reviews and ratings.
 | Layer | Location | Responsibility |
 |-------|----------|----------------|
 | **Web** | `internal/web/v1/handler.go` | HTTP, validation, error translation |
+| **gRPC** | `internal/grpc/v1/server.go` | gRPC transport — thin adapter over Logic (peer of Web) |
 | **Logic** | `internal/logic/v1/service.go` | Business rules (❌ NO SQL) |
-| **Core** | `internal/core/` | Domain models, repositories |
+| **Core** | `internal/core/` | Domain models, repositories, DB connection |
+
+Both Web (`internal/web/v1`) and gRPC (`internal/grpc/v1`) are transport adapters
+that call the same Logic service; neither contains business logic. The gRPC server
+depends on Logic through a narrow `ReviewLister` interface.
 
 ### 3-Layer Coding Rules
 
@@ -64,7 +82,9 @@ review-service/
 ├── internal/
 │   ├── core/
 │   │   ├── database.go
-│   │   └── domain/
+│   │   ├── domain/
+│   │   └── repository/
+│   ├── grpc/v1/server.go
 │   ├── logic/v1/service.go
 │   └── web/v1/handler.go
 ├── middleware/
@@ -109,9 +129,24 @@ go build ./... && go test ./... && golangci-lint run --timeout=10m
 
 | Component | Technology |
 |-----------|------------|
-| Framework | Gin |
-| Database | PostgreSQL 16 via pgx/v5 |
-| Tracing | OpenTelemetry |
+| Language | Go 1.26 |
+| HTTP framework | Gin |
+| Database | PostgreSQL via pgx/v5 |
+| East-west RPC | gRPC (`pkg/grpcx`) — server + auth client |
+| AuthN | JWT validation via `pkg/authmw` (gRPC to auth) |
+| Tracing | OpenTelemetry (`pkg/obsx`) |
+| Metrics | OpenTelemetry → Prometheus default registry (`pkg/obsx`) |
+| Profiling | Pyroscope |
+
+## 📈 Observability
+
+- **Middleware chain (HTTP)**: tracing → logging → metrics.
+- **Metrics**: `obsx.SetupMetrics()` bridges OTel metrics into the default Prometheus
+  registry. gRPC RED metrics (`rpc_server_*` and `rpc_client_*`) and HTTP RED metrics
+  (`request_duration_seconds`, …) share the **single** `/metrics` endpoint — no
+  separate port. The platform ServiceMonitor scrapes `/metrics`.
+- **Logging**: Zap; the logging middleware uses `obsx.TraceIDFromContext` to stamp the
+  active span's `trace_id` on every log line.
 
 ## 🏗️ Infrastructure Details
 
@@ -119,30 +154,41 @@ go build ./... && go test ./... && golangci-lint run --timeout=10m
 
 | Component | Value |
 |-----------|-------|
-| **Cluster** | review-db (Zalando Postgres Operator) |
-| **PostgreSQL** | 16 |
-| **HA** | Single instance (no HA) |
-| **Pooler** | **None** (direct connection) |
-| **Endpoint** | `review-db.review.svc.cluster.local:5432` |
+| **Cluster** | `supporting-shared-db` (Zalando Postgres Operator) |
+| **Pooler** | PgBouncer — `supporting-shared-db-pooler.user.svc.cluster.local` (`DB_HOST`) |
+| **Migration host** | `supporting-shared-db.user.svc.cluster.local` (direct, no pooler) |
 | **Driver** | pgx/v5 |
 
-**Why no pooler?**
-- Low traffic service
-- No connection pooler overhead
-- Direct PostgreSQL connection is sufficient
+**pgx is configured for transaction-mode pooling** (`QueryExecModeSimpleProtocol`,
+statement + description caches disabled) so server-side prepared statements don't
+break behind PgBouncer.
+
+Schema (`db/migrations/sql/`): `reviews` table keyed by SERIAL `id`, with a
+`CHECK (rating BETWEEN 1 AND 5)` and a unique `(product_id, user_id)` constraint
+(`user_id` references `auth.users.id` cross-cluster, no FK).
 
 ### Graceful Shutdown
 
-**VictoriaMetrics Pattern:**
 1. `/ready` → 503 when shutting down
-2. Drain delay (5s)
-3. Sequential: HTTP → Database → Tracer
+2. Drain delay (`READINESS_DRAIN_DELAY`, default 5s, max 30s)
+3. Sequential: HTTP → gRPC (`GracefulStop`) → Database → Tracer → Profiling
 
 ## 🔌 API Reference
 
+### HTTP (`:8080`)
+
 | Method | Path | Audience | Description |
 |--------|------|----------|-------------|
-| `GET` | `/review/v1/public/reviews?product_id={id}` | public | List reviews for a product (`product_id` query param required). Also called by `product-service` for the product-details aggregation. |
-| `POST` | `/review/v1/private/reviews` | private | Create review — `user_id` required in body; 409 if duplicate. **JWT not yet enforced in handler — flagged for hardening.** |
+| `GET` | `/review/v1/public/reviews?product_id={id}` | public | List reviews for a product (`product_id` query param required). |
+| `POST` | `/review/v1/private/reviews` | private | Create review — JWT enforced via `pkg/authmw`; `user_id` is taken from the authenticated context (not the body). 400 invalid rating, 409 duplicate. |
+
+### gRPC (`:9090`)
+
+| RPC | Caller | Description |
+|-----|--------|-------------|
+| `review.v1.ReviewService/GetProductReviews` | `product-service` | Returns all reviews for a product; mirrors `GET /review/v1/public/reviews`. |
+
+The auth gRPC client (`auth.v1.AuthService/GetMe`, `AUTH_GRPC_ADDR`) backs JWT
+validation on `private` HTTP routes.
 
 Full convention + inventory: [`homelab/docs/api/api-naming-convention.md`](https://github.com/duynhlab/homelab/blob/main/docs/api/api-naming-convention.md).
