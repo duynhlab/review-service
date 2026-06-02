@@ -17,6 +17,7 @@ import (
 
 	"github.com/duynhlab/pkg/authmw"
 	"github.com/duynhlab/pkg/grpcx"
+	"github.com/duynhlab/pkg/obsx"
 	authv1 "github.com/duynhlab/pkg/proto/auth/v1"
 	reviewv1 "github.com/duynhlab/pkg/proto/review/v1"
 	"github.com/duynhlab/review-service/config"
@@ -48,6 +49,26 @@ func main() {
 	)
 
 	tp := initTracing(cfg, logger)
+
+	// OTel metrics (global MeterProvider -> Prometheus default registry).
+	// Must run after tracing init and before the gRPC server is built so that
+	// otelgrpc RED metrics (rpc_server_*) are recorded via the global provider.
+	var shutdownMetrics func(context.Context) error
+	if cfg.Metrics.Enabled {
+		shutdownMetrics, err = obsx.SetupMetrics()
+		if err != nil {
+			logger.Warn("Failed to initialize OTel metrics", zap.Error(err))
+		} else {
+			logger.Info("OTel metrics initialized")
+		}
+	}
+	defer func() {
+		if shutdownMetrics != nil {
+			if err := shutdownMetrics(context.Background()); err != nil {
+				logger.Error("Metrics shutdown error", zap.Error(err))
+			}
+		}
+	}()
 
 	initProfiling(cfg, logger)
 
