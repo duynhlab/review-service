@@ -46,9 +46,8 @@ review-service/
 ├── cmd/main.go                 # Wiring, dual HTTP+gRPC bootstrap, graceful shutdown
 ├── config/config.go            # Env-driven config + validation (12-factor)
 ├── db/migrations/
-│   ├── Dockerfile              # Flyway init image
-│   ├── .trivyignore            # Accepted upstream Flyway CVEs
-│   └── sql/                    # V1..Vn Flyway migrations
+│   ├── embed.go                # embed.FS exposing the SQL migrations
+│   └── sql/                    # golang-migrate migrations (000001_*.up.sql), embedded via embed.go
 ├── internal/
 │   ├── web/v1/handler.go       # HTTP transport adapter
 │   ├── grpc/v1/server.go       # gRPC transport adapter
@@ -125,9 +124,9 @@ flowchart LR
   calls Logic through the narrow `ReviewLister` interface and never touches the DB.
 - Kyverno image rules: reference `ghcr.io/duynhlab/<service>:<sha>` or `:vX.Y.Z` —
   never `:latest`.
-- The Flyway init image carries upstream CVEs that can't be patched locally; they
-  are tracked in `db/migrations/.trivyignore` (wired into CI scans). Re-review on
-  Flyway upgrades.
+- Migrations run via golang-migrate from the `migrate` subcommand; the init
+  container reuses the app image (`args: ["migrate"]`). SQL files are embedded
+  through `db/migrations/embed.go` (`embed.FS`), so no separate image is built.
 - Database is `supporting-shared-db` (Zalando Postgres Operator), reached through
   the PgBouncer pooler (`DB_HOST`); migrations connect direct (no pooler). pgx is
   configured for transaction-mode pooling (simple protocol, prepared-statement and
