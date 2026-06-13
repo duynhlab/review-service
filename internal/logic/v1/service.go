@@ -20,7 +20,7 @@ func NewReviewService(repo domain.ReviewRepository) *ReviewService {
 	return &ReviewService{repo: repo}
 }
 
-func (s *ReviewService) ListReviews(ctx context.Context, productID string) ([]domain.Review, error) {
+func (s *ReviewService) ListReviews(ctx context.Context, productID string, limit, offset int) ([]domain.Review, int, error) {
 	ctx, span := middleware.StartSpan(ctx, "review.list", trace.WithAttributes(
 		attribute.String("layer", "logic"),
 		attribute.String("product.id", productID),
@@ -30,17 +30,23 @@ func (s *ReviewService) ListReviews(ctx context.Context, productID string) ([]do
 	// Convert productID to int
 	prodID, err := strconv.Atoi(productID)
 	if err != nil {
-		return nil, fmt.Errorf("invalid product_id %q: %w", productID, ErrInvalidInput)
+		return nil, 0, fmt.Errorf("invalid product_id %q: %w", productID, ErrInvalidInput)
 	}
 
-	reviews, err := s.repo.ListReviewsByProduct(ctx, prodID)
+	total, err := s.repo.CountReviewsByProduct(ctx, prodID)
 	if err != nil {
 		span.RecordError(err)
-		return nil, fmt.Errorf("list reviews by product: %w", err)
+		return nil, 0, fmt.Errorf("count reviews by product: %w", err)
+	}
+
+	reviews, err := s.repo.ListReviewsByProduct(ctx, prodID, limit, offset)
+	if err != nil {
+		span.RecordError(err)
+		return nil, 0, fmt.Errorf("list reviews by product: %w", err)
 	}
 
 	span.SetAttributes(attribute.Int("reviews.count", len(reviews)))
-	return reviews, nil
+	return reviews, total, nil
 }
 
 func (s *ReviewService) CreateReview(ctx context.Context, req domain.CreateReviewRequest) (*domain.Review, error) {

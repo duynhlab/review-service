@@ -25,9 +25,9 @@ func NewReviewRepository(pool *pgxpool.Pool) domain.ReviewRepository {
 	return &pgxReviewRepository{pool: pool}
 }
 
-func (r *pgxReviewRepository) ListReviewsByProduct(ctx context.Context, productID int) ([]domain.Review, error) {
-	query := `SELECT id, product_id, user_id, rating, title, comment, created_at FROM reviews WHERE product_id = $1 ORDER BY created_at DESC`
-	rows, err := r.pool.Query(ctx, query, productID)
+func (r *pgxReviewRepository) ListReviewsByProduct(ctx context.Context, productID, limit, offset int) ([]domain.Review, error) {
+	query := `SELECT id, product_id, user_id, rating, title, comment, created_at FROM reviews WHERE product_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3`
+	rows, err := r.pool.Query(ctx, query, productID, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("query reviews: %w", err)
 	}
@@ -66,6 +66,15 @@ func (r *pgxReviewRepository) ListReviewsByProduct(ctx context.Context, productI
 	}
 
 	return reviews, nil
+}
+
+func (r *pgxReviewRepository) CountReviewsByProduct(ctx context.Context, productID int) (int, error) {
+	query := `SELECT COUNT(*) FROM reviews WHERE product_id = $1`
+	var total int
+	if err := r.pool.QueryRow(ctx, query, productID).Scan(&total); err != nil {
+		return 0, fmt.Errorf("count reviews: %w", err)
+	}
+	return total, nil
 }
 
 func (r *pgxReviewRepository) CreateReview(ctx context.Context, review domain.Review) (*domain.Review, error) {
