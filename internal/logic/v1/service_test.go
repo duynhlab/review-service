@@ -25,16 +25,24 @@ func TestMain(m *testing.M) {
 // domain.ReviewRepository. Each method delegates to a function field so tests
 // can tailor behaviour per case; nil fields return safe zero values.
 type mockReviewRepository struct {
-	listFn   func(ctx context.Context, productID int) ([]domain.Review, error)
+	listFn   func(ctx context.Context, productID, limit, offset int) ([]domain.Review, error)
+	countFn  func(ctx context.Context, productID int) (int, error)
 	createFn func(ctx context.Context, review domain.Review) (*domain.Review, error)
 	getFn    func(ctx context.Context, productID, userID int) (*domain.Review, error)
 }
 
-func (m *mockReviewRepository) ListReviewsByProduct(ctx context.Context, productID int) ([]domain.Review, error) {
+func (m *mockReviewRepository) ListReviewsByProduct(ctx context.Context, productID, limit, offset int) ([]domain.Review, error) {
 	if m.listFn == nil {
 		return nil, nil
 	}
-	return m.listFn(ctx, productID)
+	return m.listFn(ctx, productID, limit, offset)
+}
+
+func (m *mockReviewRepository) CountReviewsByProduct(ctx context.Context, productID int) (int, error) {
+	if m.countFn == nil {
+		return 0, nil
+	}
+	return m.countFn(ctx, productID)
 }
 
 func (m *mockReviewRepository) CreateReview(ctx context.Context, review domain.Review) (*domain.Review, error) {
@@ -204,26 +212,32 @@ func TestReviewService_ListReviews(t *testing.T) {
 		repo      *mockReviewRepository
 		wantErr   error
 		wantCount int
+		wantTotal int
 	}{
 		{
 			name:      "success with reviews",
 			productID: "10",
 			repo: &mockReviewRepository{
-				listFn: func(_ context.Context, _ int) ([]domain.Review, error) {
+				countFn: func(_ context.Context, _ int) (int, error) {
+					return 5, nil
+				},
+				listFn: func(_ context.Context, _, _, _ int) ([]domain.Review, error) {
 					return []domain.Review{{ID: "1"}, {ID: "2"}}, nil
 				},
 			},
 			wantCount: 2,
+			wantTotal: 5,
 		},
 		{
 			name:      "success empty",
 			productID: "10",
 			repo: &mockReviewRepository{
-				listFn: func(_ context.Context, _ int) ([]domain.Review, error) {
+				listFn: func(_ context.Context, _, _, _ int) ([]domain.Review, error) {
 					return []domain.Review{}, nil
 				},
 			},
 			wantCount: 0,
+			wantTotal: 0,
 		},
 		{
 			name:      "non-numeric product id",
@@ -232,10 +246,20 @@ func TestReviewService_ListReviews(t *testing.T) {
 			wantErr:   v1.ErrInvalidInput,
 		},
 		{
+			name:      "count repo error",
+			productID: "10",
+			repo: &mockReviewRepository{
+				countFn: func(_ context.Context, _ int) (int, error) {
+					return 0, errRepo
+				},
+			},
+			wantErr: errRepo,
+		},
+		{
 			name:      "repo error",
 			productID: "10",
 			repo: &mockReviewRepository{
-				listFn: func(_ context.Context, _ int) ([]domain.Review, error) {
+				listFn: func(_ context.Context, _, _, _ int) ([]domain.Review, error) {
 					return nil, errRepo
 				},
 			},
@@ -248,7 +272,7 @@ func TestReviewService_ListReviews(t *testing.T) {
 			t.Parallel()
 
 			svc := v1.NewReviewService(tt.repo)
-			got, err := svc.ListReviews(context.Background(), tt.productID)
+			got, total, err := svc.ListReviews(context.Background(), tt.productID, 20, 0)
 
 			if tt.wantErr != nil {
 				if !errors.Is(err, tt.wantErr) {
@@ -265,6 +289,9 @@ func TestReviewService_ListReviews(t *testing.T) {
 			}
 			if len(got) != tt.wantCount {
 				t.Errorf("ListReviews() count = %d, want %d", len(got), tt.wantCount)
+			}
+			if total != tt.wantTotal {
+				t.Errorf("ListReviews() total = %d, want %d", total, tt.wantTotal)
 			}
 		})
 	}

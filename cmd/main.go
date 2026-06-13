@@ -18,6 +18,7 @@ import (
 
 	"github.com/duynhlab/pkg/authmw"
 	"github.com/duynhlab/pkg/grpcx"
+	"github.com/duynhlab/pkg/logger/zapx"
 	"github.com/duynhlab/pkg/migratex"
 	"github.com/duynhlab/pkg/obsx"
 	authv1 "github.com/duynhlab/pkg/proto/auth/v1"
@@ -35,7 +36,7 @@ import (
 func main() {
 	cfg := config.Load()
 
-	logger, err := middleware.NewLogger()
+	logger, err := zapx.New(os.Getenv("LOG_LEVEL"))
 	if err != nil {
 		panic("Failed to initialize logger: " + err.Error())
 	}
