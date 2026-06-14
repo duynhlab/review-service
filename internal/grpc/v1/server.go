@@ -5,10 +5,12 @@ package v1
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	reviewv1 "github.com/duynhlab/pkg/proto/review/v1"
 	"github.com/duynhlab/review-service/internal/core/domain"
+	logicv1 "github.com/duynhlab/review-service/internal/logic/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -45,6 +47,9 @@ func (s *Server) GetProductReviews(
 ) (*reviewv1.GetProductReviewsResponse, error) {
 	reviews, _, err := s.svc.ListReviews(ctx, req.GetProductId(), grpcReviewLimit, 0)
 	if err != nil {
+		if errors.Is(err, logicv1.ErrInvalidInput) {
+			return nil, status.Error(codes.InvalidArgument, "invalid product_id")
+		}
 		return nil, status.Error(codes.Internal, "failed to list reviews")
 	}
 
