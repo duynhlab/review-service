@@ -18,6 +18,7 @@ import (
 
 	"github.com/duynhlab/pkg/authmw"
 	"github.com/duynhlab/pkg/grpcx"
+	"github.com/duynhlab/pkg/logger/zapx"
 	"github.com/duynhlab/pkg/migratex"
 	"github.com/duynhlab/pkg/obsx"
 	authv1 "github.com/duynhlab/pkg/proto/auth/v1"
@@ -35,7 +36,7 @@ import (
 func main() {
 	cfg := config.Load()
 
-	logger, err := middleware.NewLogger()
+	logger, err := zapx.New(os.Getenv("LOG_LEVEL"))
 	if err != nil {
 		panic("Failed to initialize logger: " + err.Error())
 	}
@@ -43,11 +44,7 @@ func main() {
 
 	// `<binary> migrate` runs embedded schema migrations (init container, against
 	// the direct DB host) and exits; no args serves the app.
-	if len(os.Args) > 1 && os.Args[1] == "migrate" {
-		if err := migratex.Run(migrations.FS, "sql", cfg.Database.BuildDSN()); err != nil {
-			logger.Fatal("Schema migration failed", zap.Error(err))
-		}
-		logger.Info("Schema migrations applied")
+	if maybeRunMigrations(cfg, logger) {
 		return
 	}
 
@@ -116,6 +113,20 @@ func main() {
 
 	srv := setupServer(cfg, logger, authClient, &isShuttingDown, handler)
 	runGracefulShutdown(cfg, srv, grpcSrv, tp, pool, logger, &isShuttingDown)
+}
+
+// maybeRunMigrations applies the embedded schema migrations and returns true
+// when invoked as `<binary> migrate` (init container, direct DB host). false
+// means no migrate subcommand was given, so the caller continues to serve.
+func maybeRunMigrations(cfg *config.Config, logger *zap.Logger) bool {
+	if len(os.Args) <= 1 || os.Args[1] != "migrate" {
+		return false
+	}
+	if err := migratex.Run(migrations.FS, "sql", cfg.Database.BuildDSN()); err != nil {
+		logger.Fatal("Schema migration failed", zap.Error(err))
+	}
+	logger.Info("Schema migrations applied")
+	return true
 }
 
 // startGRPC starts the internal gRPC server on cfg.GRPC.Port, serving

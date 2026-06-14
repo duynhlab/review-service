@@ -7,6 +7,7 @@ import (
 	"github.com/duynhlab/review-service/internal/core/domain"
 	logicv1 "github.com/duynhlab/review-service/internal/logic/v1"
 	"github.com/duynhlab/review-service/middleware"
+	"github.com/duynhlab/pkg/httpx"
 	"github.com/gin-gonic/gin"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
@@ -36,25 +37,26 @@ func (h *ReviewHandler) ListReviews(c *gin.Context) {
 	if productID == "" {
 		span.SetAttributes(attribute.Bool("request.valid", false))
 		zapLogger.Error("Missing product_id query parameter")
-		c.JSON(http.StatusBadRequest, gin.H{"error": "product_id query parameter is required"})
+		httpx.RespondError(c, http.StatusBadRequest, httpx.CodeValidation, "product_id query parameter is required")
 		return
 	}
 	span.SetAttributes(attribute.String("product.id", productID))
 
-	reviews, err := h.service.ListReviews(ctx, productID)
+	page, pageSize := httpx.ParsePage(c)
+	reviews, total, err := h.service.ListReviews(ctx, productID, pageSize, httpx.Offset(page, pageSize))
 	if err != nil {
 		span.RecordError(err)
 		zapLogger.Error("Failed to list reviews", zap.Error(err), zap.String("product_id", productID))
 		if errors.Is(err, logicv1.ErrInvalidInput) {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid product_id"})
+			httpx.RespondError(c, http.StatusBadRequest, httpx.CodeValidation, "Invalid product_id")
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
+		httpx.RespondError(c, http.StatusInternalServerError, httpx.CodeInternal, "Internal server error")
 		return
 	}
 
 	zapLogger.Info("Reviews listed", zap.Int("count", len(reviews)), zap.String("product_id", productID))
-	c.JSON(http.StatusOK, reviews)
+	c.JSON(http.StatusOK, httpx.NewPaginated(reviews, page, pageSize, total))
 }
 
 func (h *ReviewHandler) CreateReview(c *gin.Context) {
@@ -72,7 +74,7 @@ func (h *ReviewHandler) CreateReview(c *gin.Context) {
 		span.SetAttributes(attribute.Bool("request.valid", false))
 		span.RecordError(err)
 		zapLogger.Error("Invalid request", zap.Error(err))
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+		httpx.RespondError(c, http.StatusBadRequest, httpx.CodeValidation, "invalid request body")
 		return
 	}
 
@@ -87,13 +89,13 @@ func (h *ReviewHandler) CreateReview(c *gin.Context) {
 
 		switch {
 		case errors.Is(err, logicv1.ErrInvalidInput):
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid input"})
+			httpx.RespondError(c, http.StatusBadRequest, httpx.CodeValidation, "Invalid input")
 		case errors.Is(err, logicv1.ErrInvalidRating):
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid rating (must be 1-5)"})
+			httpx.RespondError(c, http.StatusBadRequest, httpx.CodeValidation, "Invalid rating (must be 1-5)")
 		case errors.Is(err, logicv1.ErrDuplicateReview):
-			c.JSON(http.StatusConflict, gin.H{"error": "Review already exists"})
+			httpx.RespondError(c, http.StatusConflict, httpx.CodeConflict, "Review already exists")
 		default:
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
+			httpx.RespondError(c, http.StatusInternalServerError, httpx.CodeInternal, "Internal server error")
 		}
 		return
 	}

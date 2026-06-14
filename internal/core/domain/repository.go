@@ -12,8 +12,12 @@ var ErrDuplicateReview = errors.New("duplicate review")
 
 // ReviewRepository defines the interface for review data access.
 type ReviewRepository interface {
-	// ListReviewsByProduct returns all reviews for a specific product.
-	ListReviewsByProduct(ctx context.Context, productID int) ([]Review, error)
+	// ListReviewsByProduct returns a page of reviews for a specific product,
+	// bounded by limit/offset.
+	ListReviewsByProduct(ctx context.Context, productID, limit, offset int) ([]Review, error)
+
+	// CountReviewsByProduct returns the total number of reviews for a product.
+	CountReviewsByProduct(ctx context.Context, productID int) (int, error)
 
 	// CreateReview creates a new review.
 	CreateReview(ctx context.Context, review Review) (*Review, error)

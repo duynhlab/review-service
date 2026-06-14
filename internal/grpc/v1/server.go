@@ -5,10 +5,12 @@ package v1
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	reviewv1 "github.com/duynhlab/pkg/proto/review/v1"
 	"github.com/duynhlab/review-service/internal/core/domain"
+	logicv1 "github.com/duynhlab/review-service/internal/logic/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -16,8 +18,14 @@ import (
 // ReviewLister is the logic-layer dependency the gRPC server needs.
 // *logicv1.ReviewService satisfies it.
 type ReviewLister interface {
-	ListReviews(ctx context.Context, productID string) ([]domain.Review, error)
+	ListReviews(ctx context.Context, productID string, limit, offset int) ([]domain.Review, int, error)
 }
+
+// grpcReviewLimit bounds the page the gRPC path requests. The proto has no
+// pagination fields and GetProductReviews must return every review, so we ask
+// for a single large page (offset 0) rather than maintaining a separate
+// unpaginated logic method.
+const grpcReviewLimit = 10000
 
 // Server implements reviewv1.ReviewServiceServer.
 type Server struct {
@@ -37,8 +45,11 @@ func (s *Server) GetProductReviews(
 	ctx context.Context,
 	req *reviewv1.GetProductReviewsRequest,
 ) (*reviewv1.GetProductReviewsResponse, error) {
-	reviews, err := s.svc.ListReviews(ctx, req.GetProductId())
+	reviews, _, err := s.svc.ListReviews(ctx, req.GetProductId(), grpcReviewLimit, 0)
 	if err != nil {
+		if errors.Is(err, logicv1.ErrInvalidInput) {
+			return nil, status.Error(codes.InvalidArgument, "invalid product_id")
+		}
 		return nil, status.Error(codes.Internal, "failed to list reviews")
 	}
 
