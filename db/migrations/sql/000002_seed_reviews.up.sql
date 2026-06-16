@@ -48,3 +48,8 @@ SELECT
     COUNT(DISTINCT product_id) as products_reviewed,
     ROUND(AVG(rating), 2) as average_rating
 FROM reviews;
+
+-- Sequence realignment (consolidated from the former 000004_fix_sequences):
+-- the seed rows above use explicit ids, so realign the sequence to MAX(id) here,
+-- or the first app INSERT collides on the primary key.
+SELECT setval('reviews_id_seq', (SELECT MAX(id) FROM reviews));
