@@ -3,7 +3,7 @@ module github.com/duynhlab/review-service
 go 1.26.2
 
 require (
-	github.com/duynhlab/pkg v0.6.0
+	github.com/duynhlab/pkg v0.8.0
 	github.com/gin-gonic/gin v1.12.0
 	github.com/grafana/pyroscope-go v1.3.1
 	github.com/jackc/pgx/v5 v5.10.0
@@ -37,6 +37,7 @@ require (
 	github.com/goccy/go-yaml v1.19.2 // indirect
 	github.com/golang-migrate/migrate/v4 v4.19.1 // indirect
 	github.com/google/uuid v1.6.0 // indirect
+	github.com/grafana/otel-profiling-go v0.6.0 // indirect
 	github.com/grafana/pyroscope-go/godeltaprof v0.1.11 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.29.0 // indirect
 	github.com/jackc/pgerrcode v0.0.0-20220416144525-469b46aa5efa // indirect
