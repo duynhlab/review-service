@@ -29,6 +29,11 @@ the code, and consistent with existing patterns.
   cognitive complexity down.
 - Lint must pass (`golangci-lint`, v2 config in `.golangci.yml`). PRs with lint
   errors are not merged; CI runs it on every PR (`go-check`).
+- Before pushing or opening a PR, verify Sonar new-code coverage ≥80%: run
+  `go test -race -coverprofile=coverage.out ./...` and confirm changed lines are
+  covered, including BOTH branches of any new conditional. `**/cmd/**`,
+  `**/db/migrations/**`, `**/core/repository/**` are coverage-excluded;
+  everything else counts.
 
 ## Project overview
 
