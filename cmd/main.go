@@ -3,15 +3,21 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
+	"io/fs"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"sort"
+	"strings"
 	"sync/atomic"
 	"syscall"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
@@ -25,6 +31,7 @@ import (
 	reviewv1 "github.com/duynhlab/pkg/proto/review/v1"
 	"github.com/duynhlab/review-service/config"
 	migrations "github.com/duynhlab/review-service/db/migrations"
+	seed "github.com/duynhlab/review-service/db/seed"
 	database "github.com/duynhlab/review-service/internal/core"
 	"github.com/duynhlab/review-service/internal/core/repository"
 	grpcv1 "github.com/duynhlab/review-service/internal/grpc/v1"
@@ -42,9 +49,9 @@ func main() {
 	}
 	defer func() { _ = logger.Sync() }()
 
-	// `<binary> migrate` runs embedded schema migrations (init container, against
-	// the direct DB host) and exits; no args serves the app.
-	if maybeRunMigrations(cfg, logger) {
+	// Subcommands (`migrate`, `seed`) run an embedded SQL set and exit; no args
+	// serves the app.
+	if len(os.Args) > 1 && runSubcommand(os.Args[1], cfg, logger) {
 		return
 	}
 
@@ -90,7 +97,7 @@ func main() {
 		}
 	}()
 
-	pool, err := database.Connect(context.Background())
+	pool, err := database.Connect(context.Background(), cfg)
 	if err != nil {
 		logger.Error("Failed to connect to database", zap.Error(err))
 		return
@@ -129,18 +136,78 @@ func main() {
 	runGracefulShutdown(cfg, srv, grpcSrv, tp, pool, logger, &isShuttingDown)
 }
 
-// maybeRunMigrations applies the embedded schema migrations and returns true
-// when invoked as `<binary> migrate` (init container, direct DB host). false
-// means no migrate subcommand was given, so the caller continues to serve.
-func maybeRunMigrations(cfg *config.Config, logger *zap.Logger) bool {
-	if len(os.Args) <= 1 || os.Args[1] != "migrate" {
+// runSubcommand handles the `migrate` and `seed` subcommands. It returns true
+// when a subcommand was recognised and executed (the caller then exits), or
+// false to fall through to serving the app.
+//
+// `migrate` applies the versioned schema migrations and runs in every
+// environment (init container, direct DB host). `seed` applies DEV-ONLY demo
+// data and is invoked explicitly — never by `migrate` or the serve path — so
+// production databases are never seeded.
+func runSubcommand(cmd string, cfg *config.Config, logger *zap.Logger) bool {
+	switch cmd {
+	case "migrate":
+		if err := migratex.Run(migrations.FS, "sql", cfg.Database.BuildDSN()); err != nil {
+			logger.Fatal("Schema migration failed", zap.Error(err))
+		}
+		logger.Info("Schema migrations applied")
+		return true
+	case "seed":
+		// Demo data is DEV-ONLY; refuse to seed a production database.
+		if cfg.IsProduction() {
+			logger.Fatal("seed refused in production — demo data is dev-only")
+		}
+		if err := applySeed(cfg); err != nil {
+			logger.Fatal("Demo seed failed", zap.Error(err))
+		}
+		logger.Info("Demo seed data applied")
+		return true
+	default:
 		return false
 	}
-	if err := migratex.Run(migrations.FS, "sql", cfg.Database.BuildDSN()); err != nil {
-		logger.Fatal("Schema migration failed", zap.Error(err))
+}
+
+// applySeed executes the embedded dev-only seed SQL directly against the database.
+// It does NOT use golang-migrate: seeds are idempotent (ON CONFLICT) and must not
+// share the schema_migrations version table with the schema migrations. Simple
+// query protocol lets each multi-statement seed file run in one Exec.
+func applySeed(cfg *config.Config) error {
+	ctx := context.Background()
+
+	poolCfg, err := pgxpool.ParseConfig(cfg.Database.BuildDSN())
+	if err != nil {
+		return fmt.Errorf("parse seed DSN: %w", err)
 	}
-	logger.Info("Schema migrations applied")
-	return true
+	poolCfg.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
+
+	pool, err := pgxpool.NewWithConfig(ctx, poolCfg)
+	if err != nil {
+		return fmt.Errorf("connect for seed: %w", err)
+	}
+	defer pool.Close()
+
+	entries, err := fs.ReadDir(seed.FS, "sql")
+	if err != nil {
+		return fmt.Errorf("read seed dir: %w", err)
+	}
+	names := make([]string, 0, len(entries))
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".up.sql") {
+			names = append(names, e.Name())
+		}
+	}
+	sort.Strings(names)
+
+	for _, name := range names {
+		b, readErr := fs.ReadFile(seed.FS, "sql/"+name)
+		if readErr != nil {
+			return fmt.Errorf("read seed %s: %w", name, readErr)
+		}
+		if _, execErr := pool.Exec(ctx, string(b)); execErr != nil {
+			return fmt.Errorf("apply seed %s: %w", name, execErr)
+		}
+	}
+	return nil
 }
 
 // startGRPC starts the internal gRPC server on cfg.GRPC.Port, serving
@@ -157,7 +224,7 @@ func startGRPC(cfg *config.Config, logger *zap.Logger, svc *logicv1.ReviewServic
 	}
 
 	grpcSrv, _ := grpcx.NewServer()
-	reviewv1.RegisterReviewServiceServer(grpcSrv, grpcv1.NewServer(svc))
+	reviewv1.RegisterReviewServiceServer(grpcSrv, grpcv1.NewServer(svc, logger))
 
 	go func() {
 		logger.Info("Starting gRPC server", zap.String("port", cfg.GRPC.Port))

@@ -77,10 +77,19 @@ func applyMigrations(t *testing.T, ctx context.Context, dsn string) {
 	}
 	defer conn.Close(ctx)
 
-	dir := filepath.Join("..", "..", "..", "db", "migrations", "sql")
+	applySQLDir(t, ctx, conn, filepath.Join("..", "..", "..", "db", "migrations", "sql"))
+
+	// Apply the dev seed too — it lives outside the migration chain (db/seed/sql),
+	// so read-path tests must load it explicitly here.
+	applySQLDir(t, ctx, conn, filepath.Join("..", "..", "..", "db", "seed", "sql"))
+}
+
+// applySQLDir executes every *.up.sql file in dir in lexical order.
+func applySQLDir(t *testing.T, ctx context.Context, conn *pgx.Conn, dir string) {
+	t.Helper()
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		t.Fatalf("read migrations dir: %v", err)
+		t.Fatalf("read dir %s: %v", dir, err)
 	}
 	var files []string
 	for _, e := range entries {
@@ -95,7 +104,7 @@ func applyMigrations(t *testing.T, ctx context.Context, dsn string) {
 			t.Fatalf("read %s: %v", f, err)
 		}
 		if _, err := conn.Exec(ctx, string(sqlBytes)); err != nil {
-			t.Fatalf("apply migration %s: %v", f, err)
+			t.Fatalf("apply %s: %v", f, err)
 		}
 	}
 }
