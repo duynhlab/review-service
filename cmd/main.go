@@ -115,10 +115,17 @@ func main() {
 	authClient := authv1.NewAuthServiceClient(authConn)
 	logger.Info("Auth gRPC client initialized", zap.String("auth_grpc_addr", cfg.AuthGRPCAddr))
 
+	// Local JWT verification via JWKS; opaque tokens fall back to gRPC GetMe.
+	verifier, err := authmw.NewVerifier(cfg.JWKSURL, cfg.JWTIssuer, cfg.JWTAudience)
+	if err != nil {
+		logger.Warn("Failed to initialize JWT verifier; falling back to gRPC validation",
+			zap.String("jwks_url", cfg.JWKSURL), zap.Error(err))
+	}
+
 	// Internal gRPC server (east-west). HTTP :8080 is unaffected.
 	grpcSrv := startGRPC(cfg, logger, service)
 
-	srv := setupServer(cfg, logger, authClient, &isShuttingDown, handler)
+	srv := setupServer(cfg, logger, verifier, authClient, &isShuttingDown, handler)
 	runGracefulShutdown(cfg, srv, grpcSrv, tp, pool, logger, &isShuttingDown)
 }
 
@@ -193,7 +200,7 @@ func initProfiling(cfg *config.Config, logger *zap.Logger) func(context.Context)
 	return stopProfiling
 }
 
-func setupServer(cfg *config.Config, logger *zap.Logger, authClient authv1.AuthServiceClient, isShuttingDown *atomic.Bool, handler *v1.ReviewHandler) *http.Server {
+func setupServer(cfg *config.Config, logger *zap.Logger, verifier *authmw.Verifier, authClient authv1.AuthServiceClient, isShuttingDown *atomic.Bool, handler *v1.ReviewHandler) *http.Server {
 	r := gin.Default()
 
 	r.Use(middleware.TracingMiddleware())
@@ -217,7 +224,7 @@ func setupServer(cfg *config.Config, logger *zap.Logger, authClient authv1.AuthS
 
 	// Private routes require JWT validation via the auth service.
 	privateReviews := r.Group("/review/v1/private")
-	privateReviews.Use(authmw.Middleware(authClient))
+	privateReviews.Use(authmw.MiddlewareJWT(verifier, authClient))
 	{
 		privateReviews.POST("/reviews", handler.CreateReview)
 	}
