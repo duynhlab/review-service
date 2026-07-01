@@ -112,9 +112,13 @@ type DatabaseConfig struct {
 	PoolerType     string // Pooler type - from DB_POOLER_TYPE env (optional)
 }
 
-// BuildDSN constructs PostgreSQL connection string from config
+// BuildDSN constructs the PostgreSQL connection string from config. It is the
+// single source of truth for the DSN, used identically by the app (Connect) and
+// the migrate subcommand.
 func (c *DatabaseConfig) BuildDSN() string {
 	// Format: postgresql://user:password@host:port/dbname?sslmode=disable
+	// Pool sizing is applied on the parsed pgxpool.Config in database.Connect (not
+	// the DSN) so the migrate subcommand can share this exact DSN.
 	hostPort := net.JoinHostPort(c.Host, c.Port)
 	return fmt.Sprintf("postgresql://%s:%s@%s/%s?sslmode=%s",
 		c.User, c.Password, hostPort, c.Name, c.SSLMode)

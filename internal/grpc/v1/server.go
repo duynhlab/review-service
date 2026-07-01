@@ -11,6 +11,7 @@ import (
 	reviewv1 "github.com/duynhlab/pkg/proto/review/v1"
 	"github.com/duynhlab/review-service/internal/core/domain"
 	logicv1 "github.com/duynhlab/review-service/internal/logic/v1"
+	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -31,12 +32,19 @@ const grpcReviewLimit = 10000
 type Server struct {
 	reviewv1.UnimplementedReviewServiceServer
 
-	svc ReviewLister
+	svc    ReviewLister
+	logger *zap.Logger
 }
 
-// NewServer creates a gRPC ReviewService server backed by the logic service.
-func NewServer(svc ReviewLister) *Server {
-	return &Server{svc: svc}
+// NewServer creates a gRPC ReviewService server backed by the logic service. An
+// optional logger may be supplied (used to surface result truncation); when
+// omitted it defaults to a no-op logger.
+func NewServer(svc ReviewLister, logger ...*zap.Logger) *Server {
+	l := zap.NewNop()
+	if len(logger) > 0 && logger[0] != nil {
+		l = logger[0]
+	}
+	return &Server{svc: svc, logger: l}
 }
 
 // GetProductReviews mirrors GET /review/v1/public/reviews?product_id=…, returning
@@ -51,6 +59,15 @@ func (s *Server) GetProductReviews(
 			return nil, status.Error(codes.InvalidArgument, "invalid product_id")
 		}
 		return nil, status.Error(codes.Internal, "failed to list reviews")
+	}
+
+	// The proto has no pagination, so a product with more than grpcReviewLimit
+	// reviews is silently truncated. Log it so the truncation is observable.
+	if len(reviews) >= grpcReviewLimit {
+		s.logger.Warn("GetProductReviews result hit page limit; results may be truncated",
+			zap.String("product_id", req.GetProductId()),
+			zap.Int("limit", grpcReviewLimit),
+		)
 	}
 
 	out := make([]*reviewv1.Review, 0, len(reviews))

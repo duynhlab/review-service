@@ -9,6 +9,7 @@ func TestBuildDSN(t *testing.T) {
 	db := &DatabaseConfig{
 		Host: "localhost", Port: "5432", Name: "review",
 		User: "review", Password: "secret", SSLMode: "disable",
+		MaxConnections: 25,
 	}
 	want := "postgresql://review:secret@localhost:5432/review?sslmode=disable"
 	if got := db.BuildDSN(); got != want {
