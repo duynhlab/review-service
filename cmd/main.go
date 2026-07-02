@@ -27,7 +27,6 @@ import (
 	"github.com/duynhlab/pkg/logger/zapx"
 	"github.com/duynhlab/pkg/migratex"
 	"github.com/duynhlab/pkg/obsx"
-	authv1 "github.com/duynhlab/pkg/proto/auth/v1"
 	reviewv1 "github.com/duynhlab/pkg/proto/review/v1"
 	"github.com/duynhlab/review-service/config"
 	migrations "github.com/duynhlab/review-service/db/migrations"
@@ -112,27 +111,17 @@ func main() {
 	service := logicv1.NewReviewService(repo)
 	handler := v1.NewReviewHandler(service)
 
-	// Validate tokens against auth over gRPC (shared fail-closed authmw).
-	authConn, err := grpcx.Dial(cfg.AuthGRPCAddr)
-	if err != nil {
-		logger.Error("Failed to dial auth gRPC", zap.String("addr", cfg.AuthGRPCAddr), zap.Error(err))
-		return
-	}
-	defer func() { _ = authConn.Close() }()
-	authClient := authv1.NewAuthServiceClient(authConn)
-	logger.Info("Auth gRPC client initialized", zap.String("auth_grpc_addr", cfg.AuthGRPCAddr))
-
-	// Local JWT verification via JWKS; opaque tokens fall back to gRPC GetMe.
+	// Local JWT verification via JWKS — the only auth path (no gRPC fallback).
 	verifier, err := authmw.NewVerifier(cfg.JWKSURL, cfg.JWTIssuer, cfg.JWTAudience)
 	if err != nil {
-		logger.Warn("Failed to initialize JWT verifier; falling back to gRPC validation",
+		logger.Fatal("Failed to initialize JWT verifier",
 			zap.String("jwks_url", cfg.JWKSURL), zap.Error(err))
 	}
 
 	// Internal gRPC server (east-west). HTTP :8080 is unaffected.
 	grpcSrv := startGRPC(cfg, logger, service)
 
-	srv := setupServer(cfg, logger, verifier, authClient, &isShuttingDown, handler)
+	srv := setupServer(cfg, logger, verifier, &isShuttingDown, handler)
 	runGracefulShutdown(cfg, srv, grpcSrv, tp, pool, logger, &isShuttingDown)
 }
 
@@ -267,7 +256,7 @@ func initProfiling(cfg *config.Config, logger *zap.Logger) func(context.Context)
 	return stopProfiling
 }
 
-func setupServer(cfg *config.Config, logger *zap.Logger, verifier *authmw.Verifier, authClient authv1.AuthServiceClient, isShuttingDown *atomic.Bool, handler *v1.ReviewHandler) *http.Server {
+func setupServer(cfg *config.Config, logger *zap.Logger, verifier *authmw.Verifier, isShuttingDown *atomic.Bool, handler *v1.ReviewHandler) *http.Server {
 	r := gin.Default()
 
 	r.Use(middleware.TracingMiddleware())
@@ -289,9 +278,9 @@ func setupServer(cfg *config.Config, logger *zap.Logger, verifier *authmw.Verifi
 	// Review v1 routes — Variant A edge naming (see api-naming-convention.md)
 	r.GET("/review/v1/public/reviews", handler.ListReviews)
 
-	// Private routes require JWT validation via the auth service.
+	// Private routes require local JWT validation (JWKS).
 	privateReviews := r.Group("/review/v1/private")
-	privateReviews.Use(authmw.MiddlewareJWT(verifier, authClient))
+	privateReviews.Use(authmw.MiddlewareJWT(verifier))
 	{
 		privateReviews.POST("/reviews", handler.CreateReview)
 	}
