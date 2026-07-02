@@ -26,19 +26,18 @@ All routes follow Variant A naming — single path for browser and in-cluster ca
 
 Infra endpoints: `GET /health`, `GET /ready` (503 while draining), `GET /metrics`.
 
-JWT on `private` routes is validated by the shared `pkg/authmw` middleware, which
-calls the auth service over gRPC (`auth.v1.AuthService/GetMe`). The authenticated
-`user_id` is taken from context, never from the request body.
+JWT on `private` routes is validated locally by the shared `pkg/authmw`
+middleware, verifying RS256 tokens against the auth service's JWKS
+(`AUTH_JWKS_URL`). The authenticated `user_id` is taken from context, never
+from the request body.
 
 ### gRPC (`:9090`)
 
-review-service is both a gRPC server and a gRPC client:
+review-service runs a gRPC server:
 
 - **Server** — exposes `review.v1.ReviewService/GetProductReviews`, called by
   `product-service` for the product-details aggregation. Mirrors
   `GET /review/v1/public/reviews` and returns identical data.
-- **Client** — dials the auth service (`AUTH_GRPC_ADDR`,
-  default `dns:///auth.auth.svc.cluster.local:9090`) to validate JWTs.
 
 The gRPC server is built via the shared `pkg/grpcx` bootstrap (OpenTelemetry stats
 handler, gRPC health service, server reflection) and always runs alongside the
@@ -55,8 +54,8 @@ HTTP listener.
 
 - **Tracing**: OpenTelemetry → OTel Collector (OTLP/HTTP). Spans per layer (`web`, `logic`).
 - **Metrics**: `obsx.SetupMetrics()` bridges OpenTelemetry metrics into the default
-  Prometheus registry, so gRPC RED metrics (`rpc_server_*` from the gRPC server and
-  `rpc_client_*` from the auth client) surface on the **same** `/metrics` endpoint as
+  Prometheus registry, so gRPC RED metrics (`rpc_server_*` from the gRPC server)
+  surface on the **same** `/metrics` endpoint as
   the HTTP RED metrics (`request_duration_seconds`, …). No separate metrics port; the
   platform ServiceMonitor scrapes `/metrics`.
 - **Logging**: structured Zap. The logging middleware uses `obsx.TraceIDFromContext`

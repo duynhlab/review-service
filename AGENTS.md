@@ -41,7 +41,7 @@ Product review microservice. Manages product reviews and ratings.
 
 - Module path: `github.com/duynhlab/review-service`.
 - HTTP server on `:8080` (north-south, browser + in-cluster callers).
-- gRPC server on `:9090` (east-west) and a gRPC client to the auth service.
+- gRPC server on `:9090` (east-west).
 - Both transports always run; gRPC is the official east-west transport.
 
 ## Repository layout
@@ -108,17 +108,16 @@ holds business logic. Use constructor injection for all dependencies.
 - Mirrors `GET /review/v1/public/reviews?product_id=…` and returns identical data.
 - Built via `pkg/grpcx` (OpenTelemetry stats handler, health service, reflection).
 
-### gRPC client (auth)
+### JWT validation (auth)
 
-- Validates JWTs on `private` HTTP routes via `pkg/authmw`, calling
-  `auth.v1.AuthService/GetMe` over gRPC.
-- Target from `AUTH_GRPC_ADDR` (default `dns:///auth.auth.svc.cluster.local:9090`).
+- Validates JWTs on `private` HTTP routes via `pkg/authmw`, verifying RS256
+  tokens locally against the auth service's JWKS (`AUTH_JWKS_URL`).
 
 ### Observability (`pkg/obsx`)
 
 - HTTP middleware chain order: tracing → logging → metrics.
 - `obsx.SetupMetrics()` bridges OTel metrics into the default Prometheus registry.
-  gRPC RED (`rpc_server_*`, `rpc_client_*`) and HTTP RED metrics share the single
+  gRPC RED (`rpc_server_*`) and HTTP RED metrics share the single
   `/metrics` endpoint — no separate port.
 - Logging middleware stamps the active span via `obsx.TraceIDFromContext`,
   falling back to header/generated trace IDs.
@@ -135,7 +134,7 @@ flowchart LR
     GRPC --> Logic
     Logic --> Core[core]
     Core -->|pgx/v5| DB[(supporting-shared-db)]
-    Web -.JWT validate.-> Auth[auth.v1.AuthService/GetMe]
+    Web -.JWT verify via JWKS.-> Auth[auth JWKS]
 ```
 
 ## Gotchas

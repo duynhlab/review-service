@@ -43,7 +43,6 @@ type Config struct {
 	Logging         LoggingConfig   // Structured logging (Zap)
 	Metrics         MetricsConfig   // Prometheus metrics
 	Database        DatabaseConfig  // PostgreSQL database configuration
-	AuthGRPCAddr    string          // Auth service gRPC target for token validation - from AUTH_GRPC_ADDR env
 	JWKSURL         string          // Auth JWKS endpoint for local JWT verification - from AUTH_JWKS_URL env
 	JWTIssuer       string          // Expected JWT issuer (iss claim) - from JWT_ISSUER env
 	JWTAudience     string          // Expected JWT audience (aud claim) - from JWT_AUDIENCE env
@@ -175,7 +174,6 @@ func Load() *Config {
 			PoolMode:       getEnv("DB_POOL_MODE", ""),
 			PoolerType:     getEnv("DB_POOLER_TYPE", ""),
 		},
-		AuthGRPCAddr:        getEnv("AUTH_GRPC_ADDR", "dns:///auth.auth.svc.cluster.local:9090"),
 		JWKSURL:             getEnv("AUTH_JWKS_URL", "http://auth.auth.svc.cluster.local:8080/auth/v1/public/jwks"),
 		JWTIssuer:           getEnv("JWT_ISSUER", "https://gateway.duynh.me"),
 		JWTAudience:         getEnv("JWT_AUDIENCE", "duynhlab-platform"),
