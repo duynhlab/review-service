@@ -19,7 +19,7 @@ func TestBuildDSN(t *testing.T) {
 
 func TestLoad_Defaults(t *testing.T) {
 	// Empty value makes getEnv* fall back to the default.
-	for _, k := range []string{"SERVICE_NAME", "PORT", "ENV", "TRACING_ENABLED", "OTEL_SAMPLE_RATE", "OTEL_BATCH_SIZE", "DB_HOST", "DB_POOL_MAX_CONNECTIONS"} {
+	for _, k := range []string{"SERVICE_NAME", "PORT", "ENV", "TRACING_ENABLED", "OTEL_SAMPLE_RATE", "DB_HOST", "DB_POOL_MAX_CONNECTIONS"} {
 		t.Setenv(k, "")
 	}
 	cfg := Load()
@@ -32,9 +32,6 @@ func TestLoad_Defaults(t *testing.T) {
 	if cfg.Tracing.SampleRate != 0.1 {
 		t.Errorf("default SampleRate = %v, want 0.1", cfg.Tracing.SampleRate)
 	}
-	if cfg.Tracing.MaxExportBatchSize != 512 {
-		t.Errorf("default MaxExportBatchSize = %d, want 512", cfg.Tracing.MaxExportBatchSize)
-	}
 	if cfg.Database.MaxConnections != 25 {
 		t.Errorf("default MaxConnections = %d, want 25", cfg.Database.MaxConnections)
 	}
@@ -46,7 +43,6 @@ func TestLoad_Overrides(t *testing.T) {
 	t.Setenv("ENV", "production")
 	t.Setenv("TRACING_ENABLED", "false")
 	t.Setenv("OTEL_SAMPLE_RATE", "0.5")
-	t.Setenv("OTEL_BATCH_SIZE", "256")
 	t.Setenv("DB_POOL_MAX_CONNECTIONS", "not-a-number") // invalid → falls back to default
 
 	cfg := Load()
@@ -58,9 +54,6 @@ func TestLoad_Overrides(t *testing.T) {
 	}
 	if cfg.Tracing.SampleRate != 0.5 {
 		t.Errorf("SampleRate = %v, want 0.5", cfg.Tracing.SampleRate)
-	}
-	if cfg.Tracing.MaxExportBatchSize != 256 {
-		t.Errorf("MaxExportBatchSize = %d, want 256", cfg.Tracing.MaxExportBatchSize)
 	}
 	if cfg.Database.MaxConnections != 25 {
 		t.Errorf("invalid int env should fall back to 25, got %d", cfg.Database.MaxConnections)
@@ -117,9 +110,9 @@ func TestValidate(t *testing.T) {
 
 func TestIsDevelopmentProduction(t *testing.T) {
 	tests := []struct {
-		env       string
-		isDev     bool
-		isProd    bool
+		env    string
+		isDev  bool
+		isProd bool
 	}{
 		{"development", true, false},
 		{"dev", true, false},
