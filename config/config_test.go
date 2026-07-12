@@ -179,3 +179,14 @@ func TestValidateErrorMentionsField(t *testing.T) {
 		t.Errorf("expected error mentioning SERVICE_NAME, got %v", err)
 	}
 }
+
+// TestLoadJWKSDefault pins the v3 collection-noun JWKS path (homelab ADR-017)
+// so a regression back to the pre-v3 default fails fast.
+func TestLoadJWKSDefault(t *testing.T) {
+	t.Setenv("AUTH_JWKS_URL", "")
+	cfg := Load()
+	want := "http://auth.auth.svc.cluster.local:8080/auth/v1/public/auth/jwks"
+	if cfg.JWKSURL != want {
+		t.Errorf("default JWKSURL = %q, want %q", cfg.JWKSURL, want)
+	}
+}
