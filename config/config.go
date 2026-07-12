@@ -161,7 +161,7 @@ func Load() *Config {
 			PoolMode:       getEnv("DB_POOL_MODE", ""),
 			PoolerType:     getEnv("DB_POOLER_TYPE", ""),
 		},
-		JWKSURL:             getEnv("AUTH_JWKS_URL", "http://auth.auth.svc.cluster.local:8080/auth/v1/public/jwks"),
+		JWKSURL:             getEnv("AUTH_JWKS_URL", "http://auth.auth.svc.cluster.local:8080/auth/v1/public/auth/jwks"),
 		JWTIssuer:           getEnv("JWT_ISSUER", "https://gateway.duynh.me"),
 		JWTAudience:         getEnv("JWT_AUDIENCE", "duynhlab-platform"),
 		ShutdownTimeout:     getEnvDurationSeconds("SHUTDOWN_TIMEOUT", 10),
