@@ -23,13 +23,10 @@ func NewReviewHandler(service *logicv1.ReviewService) *ReviewHandler {
 }
 
 func (h *ReviewHandler) ListReviews(c *gin.Context) {
-	ctx, span := middleware.StartSpan(c.Request.Context(), "http.request", trace.WithAttributes(
-		attribute.String("layer", "web"),
-		attribute.String("method", c.Request.Method),
-		attribute.String("path", c.Request.URL.Path),
-	))
-	defer span.End()
-
+	// otelgin already opened the server span for this request; annotate it
+	// rather than minting a duplicate. Do not end it — otelgin owns its lifecycle.
+	ctx := c.Request.Context()
+	span := trace.SpanFromContext(ctx)
 	zapLogger := middleware.GetLoggerFromGinContext(c)
 
 	// Parse product_id from query string (required)
@@ -60,13 +57,8 @@ func (h *ReviewHandler) ListReviews(c *gin.Context) {
 }
 
 func (h *ReviewHandler) CreateReview(c *gin.Context) {
-	ctx, span := middleware.StartSpan(c.Request.Context(), "http.request", trace.WithAttributes(
-		attribute.String("layer", "web"),
-		attribute.String("method", c.Request.Method),
-		attribute.String("path", c.Request.URL.Path),
-	))
-	defer span.End()
-
+	ctx := c.Request.Context()
+	span := trace.SpanFromContext(ctx)
 	zapLogger := middleware.GetLoggerFromGinContext(c)
 
 	var req domain.CreateReviewRequest
