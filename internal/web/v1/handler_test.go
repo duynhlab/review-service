@@ -11,16 +11,13 @@ import (
 
 	"github.com/duynhlab/review-service/internal/core/domain"
 	logicv1 "github.com/duynhlab/review-service/internal/logic/v1"
-	"github.com/duynhlab/review-service/middleware"
 	"github.com/gin-gonic/gin"
 )
 
-// TestMain warms up the global OpenTelemetry tracer once before any subtest, so
-// the lazy package-level tracer init in middleware.StartSpan happens
-// single-threaded and avoids a benign data race under -race.
+// TestMain puts Gin in test mode once for every subtest. The web layer reads the
+// server span via trace.SpanFromContext, so no tracer warm-up is needed here.
 func TestMain(m *testing.M) {
 	gin.SetMode(gin.TestMode)
-	middleware.GetTracer()
 	os.Exit(m.Run())
 }
 
