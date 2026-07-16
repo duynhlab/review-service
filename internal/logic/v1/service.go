@@ -80,6 +80,7 @@ func (s *ReviewService) CreateReview(ctx context.Context, req domain.CreateRevie
 	}
 	if existing != nil {
 		span.SetAttributes(attribute.Bool("review.created", false))
+		recordDuplicateRejected(ctx)
 		return nil, fmt.Errorf("create review for product %q: %w", req.ProductID, ErrDuplicateReview)
 	}
 
@@ -98,6 +99,7 @@ func (s *ReviewService) CreateReview(ctx context.Context, req domain.CreateRevie
 		// concurrent insert that slipped past the pre-check above.
 		if errors.Is(err, domain.ErrDuplicateReview) {
 			span.SetAttributes(attribute.Bool("review.created", false))
+			recordDuplicateRejected(ctx)
 			return nil, fmt.Errorf("create review for product %q: %w", req.ProductID, ErrDuplicateReview)
 		}
 		return nil, fmt.Errorf("insert review: %w", err)
@@ -108,6 +110,7 @@ func (s *ReviewService) CreateReview(ctx context.Context, req domain.CreateRevie
 		attribute.Bool("review.created", true),
 	)
 	span.AddEvent("review.created")
+	recordReviewRating(ctx, createdReview.Rating)
 
 	return createdReview, nil
 }

@@ -68,6 +68,7 @@ func (s *Server) GetProductReviews(
 			zap.String("product_id", req.GetProductId()),
 			zap.Int("limit", grpcReviewLimit),
 		)
+		logicv1.RecordReviewsTruncated(ctx)
 	}
 
 	out := make([]*reviewv1.Review, 0, len(reviews))
