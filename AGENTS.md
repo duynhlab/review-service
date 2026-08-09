@@ -3,6 +3,23 @@
 Agent-focused guide for `review-service`. Keep changes minimal, verified against
 the code, and consistent with existing patterns.
 
+## Authority and scope
+
+This repository implements the service. It does **not** define the contract.
+
+- **Canonical contract:** [`homelab/docs/api/review.md`](https://github.com/duynhlab/homelab/blob/main/docs/api/review.md)
+- **Shared API rules:** [`homelab/docs/api/api.md`](https://github.com/duynhlab/homelab/blob/main/docs/api/api.md)
+
+Implement against those files. When this repository and the contract disagree,
+**stop and classify the mismatch** using
+[Resolving a mismatch](https://github.com/duynhlab/homelab/blob/main/docs/api/README.md#resolving-a-mismatch)
+before changing either side. One class — an implementation that violates the
+intended contract — **blocks the release tag**.
+
+No route, RPC, payload or error inventory belongs in this file. Manifests,
+gateway routing, NetworkPolicy and platform observability belong to
+[duynhlab/homelab](https://github.com/duynhlab/homelab).
+
 ## Contribution workflow
 
 - Never push to `main`. Branch, then open a PR.
@@ -35,118 +52,114 @@ the code, and consistent with existing patterns.
   `**/db/migrations/**`, `**/core/repository/**` are coverage-excluded;
   everything else counts.
 
-## Project overview
-
-Product review microservice. Manages product reviews and ratings.
-
-- Module path: `github.com/duynhlab/review-service`.
-- HTTP server on `:8080` (north-south, browser + in-cluster callers).
-- gRPC server on `:9090` (east-west).
-- Both transports always run; gRPC is the official east-west transport.
-
-## Repository layout
-
-```
-review-service/
-├── cmd/main.go                 # Wiring, dual HTTP+gRPC bootstrap, graceful shutdown
-├── config/config.go            # Env-driven config + validation (12-factor)
-├── db/migrations/
-│   ├── embed.go                # embed.FS exposing the SQL migrations
-│   └── sql/                    # golang-migrate migrations (000001_*.up.sql), embedded via embed.go
-├── internal/
-│   ├── web/v1/handler.go       # HTTP transport adapter
-│   ├── grpc/v1/server.go       # gRPC transport adapter
-│   ├── logic/v1/               # Business rules (service.go, errors.go)
-│   └── core/                   # database.go, domain/, repository/
-└── middleware/                 # Tracing, logging, metrics, profiling
-```
-
 ## Build, test, lint
 
+These are the commands CI runs, so a green local run means a green pipeline.
+
 ```bash
-GOTOOLCHAIN=auto go build ./...
-GOTOOLCHAIN=auto go vet ./...
-GOTOOLCHAIN=auto go test ./...     # CI runs with -race -coverprofile
-golangci-lint run                  # must pass before commit
+go build ./...
+go vet ./...
+go test -race ./...
+go test -tags=integration ./internal/core/repository/...   # needs Docker (testcontainers)
+golangci-lint run
 ```
 
-### Testing conventions
+Local development against an unreleased `pkg`: `pkg` is one module per package,
+so its root has no `go.mod` and a single `replace github.com/duynhlab/pkg` can no
+longer resolve. Use one commented `replace` line per module — the trailer in
+`go.mod` shows the shape, and
+[`docs/api/pkg.md`](https://github.com/duynhlab/homelab/blob/main/docs/api/pkg.md)
+explains why.
 
-- **Unit tests** — stdlib `testing` only (no testify/gomock), hand-written mocks for
-  interfaces, table-driven subtests, in `*_test.go` next to the code: Web (`httptest`),
-  Logic (pure — mock the repo), gRPC (call handlers directly), `middleware`, `config`. Run
-  with `go test ./...` (no Docker).
-- **Integration tests** — `internal/core/repository` is tested against a **real Postgres**
-  via testcontainers, build-tagged `//go:build integration` (the default `go build`/`go test`
-  skip them, so the binary never links testcontainers). Run locally with Docker:
-  `go test -tags=integration ./internal/core/repository/...`. CI wires `integration: true`
-  (go-check) + `integration-coverage: true` (sonar), and merges both coverage profiles into
-  the ≥ 80% new-code gate.
-- **Before pushing**, both the unit run *and* the integration suite must be green locally —
-  green unit ≠ green CI (CI also runs integration with Docker).
+## Architecture boundaries
 
-## Conventions
+**3-layer, dependencies flow one way only: transport → logic → core.**
 
-### 3-layer architecture
+- **Transport** — `internal/web/v1/` (HTTP) and `internal/grpc/v1/` (gRPC). Both
+  validate, map and delegate; neither may touch the database or hold business
+  rules.
+- **Logic** — `internal/logic/v1/` holds the rules and calls repository
+  interfaces. No SQL, no transport types.
+- **Core** — `internal/core/` owns the domain model, the repository interface and
+  the Postgres implementation. It imports nothing from transport or logic.
 
-Dependency flows one way: `web → logic → core` (never reverse).
+Both transports always run. Observability is wired once through
+`github.com/duynhlab/pkg/obsx`; the pool comes from `github.com/duynhlab/pkg/dbx`;
+the gRPC server is built by `github.com/duynhlab/pkg/grpcx`; HTTP responses use the
+shared `github.com/duynhlab/pkg/httpx` envelope.
 
-| Layer | Location | Allowed | Forbidden |
-|-------|----------|---------|-----------|
-| Web | `internal/web/v1/` | HTTP, JSON binding, DTO mapping, call Logic, aggregation | SQL, direct DB, business rules |
-| gRPC | `internal/grpc/v1/` | gRPC transport, map domain↔proto, call Logic | SQL, direct DB, business rules |
-| Logic | `internal/logic/v1/` | Business rules, call repository interfaces, domain errors | SQL, `database.GetPool()`, `*gin.Context` |
-| Core | `internal/core/` | Domain models, repository impls, SQL, DB connection | HTTP handling, orchestration |
+## Invariants
 
-Web and gRPC are sibling transport adapters over the same Logic service; neither
-holds business logic. Use constructor injection for all dependencies.
+Rules an implementer can violate at the keyboard.
 
-### gRPC server (east-west)
+- **Identity comes from the JWT, never the request body.** The handler overwrites
+  `req.UserID` with `c.GetString("user_id")`, and the request struct deliberately
+  leaves that field non-required so it *can* be overwritten. Accepting a user id
+  from the body would let anyone review as anyone.
+- **The database is the uniqueness authority, not the pre-check.** One review per
+  (product, user) is enforced by a unique constraint; the pre-check is a nicety
+  that a concurrent insert can slip past. The repository maps SQLSTATE `23505` to
+  a duplicate error, which becomes a 409.
+- **Both duplicate paths must record the same metric.** The rejection counter is
+  called from the pre-check *and* from the constraint-violation path. A third
+  rejection path added without it silently breaks the signal.
+- **Rating is validated three times on purpose** — binding tag, logic guard, and a
+  `CHECK` constraint. The metric histogram assumes a bounded 1–5 value, so
+  loosening any one of the three puts values in undefined buckets.
+- **`seed` is development-only** and refuses to run in production. It is invoked
+  explicitly — never from `migrate` or the serve path — and it must not use
+  golang-migrate: seeds are idempotent `ON CONFLICT` statements and must not share
+  the `schema_migrations` version table.
+- **Pooler-safe database settings live in `pkg/dbx`, not here.** Simple protocol
+  and disabled statement caches are required by the pooler in front of Postgres.
+  Do not re-add local pgx tuning.
+- **One DSN for the app and for migrations.** `BuildDSN()` is the single source;
+  pool sizing is applied to the parsed config, never to the DSN string, because
+  the stdlib driver used by migrations rejects `pool_*` parameters.
+- **Graceful-shutdown ordering is load-bearing:** flag not-ready → readiness drain
+  delay → HTTP shutdown → gRPC `GracefulStop` → pool close → OTel shutdown last,
+  so pending spans, metrics and logs still flush.
+- **The gRPC read is capped at 10,000 reviews** because the proto has no
+  pagination fields. Truncation must log and increment its counter. The counter
+  knowingly over-counts the exact-cap case — a full page is indistinguishable from
+  a truncated one — and that is preferred to under-reporting truncation.
+- **Metrics carry no labels.** No ids, no free-form text. A label added here
+  becomes cardinality in the platform's metric store.
+- **Probe suppression is one contract across logs and traces.** Successful
+  `/health` and `/ready` requests are excluded from spans *and* from access logs
+  through the same skip list; a **failing** probe is still recorded. Changing one
+  side without the other breaks the contract silently. 4xx logs at warn, 5xx at
+  error.
 
-- Exposes `review.v1.ReviewService/GetProductReviews` on `:9090`, called by
-  `product-service` for product-details aggregation.
-- Mirrors `GET /review/v1/public/reviews?product_id=…` and returns identical data.
-- Built via `pkg/grpcx` (OpenTelemetry stats handler, health service, reflection).
+## Repository map
 
-### JWT validation (auth)
-
-- Validates JWTs on `private` HTTP routes via `pkg/authmw`, verifying RS256
-  tokens locally against the auth service's JWKS (`AUTH_JWKS_URL`).
-
-### Observability (`pkg/obsx`)
-
-- HTTP middleware chain order: tracing → logging → metrics.
-- `obsx.SetupMetrics()` bridges OTel metrics into the default Prometheus registry.
-  gRPC RED (`rpc_server_*`) and HTTP RED metrics share the single
-  `/metrics` endpoint — no separate port.
-- Logging middleware stamps the active span via `obsx.TraceIDFromContext`,
-  falling back to header/generated trace IDs.
-
-### Diagrams
-
-Use Mermaid only — no ASCII art.
-
-```mermaid
-flowchart LR
-    Browser -->|HTTP :8080| Web[web/v1]
-    Product[product-service] -->|gRPC :9090| GRPC[grpc/v1]
-    Web --> Logic[logic/v1]
-    GRPC --> Logic
-    Logic --> Core[core]
-    Core -->|pgx/v5| DB[(supporting-shared-db)]
-    Web -.JWT verify via JWKS.-> Auth[auth JWKS]
-```
+- `cmd/main.go` — wiring, subcommand dispatch, HTTP + gRPC bootstrap, graceful shutdown
+- `config/config.go` — env config, `Validate()`, `BuildDSN()`
+- `db/migrations/` — forward-only golang-migrate SQL, embedded
+- `db/seed/` — development-only demo seed, embedded
+- `internal/web/v1/` — HTTP adapter
+- `internal/grpc/v1/` — gRPC adapter, including the read cap and truncation counter
+- `internal/logic/v1/` — business rules, sentinel errors, metrics
+- `internal/core/` — database wiring, domain model, repository interface and Postgres implementation
+- `middleware/` — tracing and logging only
 
 ## Gotchas
 
-- The gRPC server (`internal/grpc/v1/server.go`) is a transport peer of Web: it
-  calls Logic through the narrow `ReviewLister` interface and never touches the DB.
-- Kyverno image rules: reference `ghcr.io/duynhlab/<service>:<sha>` or `:vX.Y.Z` —
-  never `:latest`.
-- Migrations run via golang-migrate from the `migrate` subcommand; the init
-  container reuses the app image (`args: ["migrate"]`). SQL files are embedded
-  through `db/migrations/embed.go` (`embed.FS`), so no separate image is built.
-- Database is `supporting-shared-db` (Zalando Postgres Operator), reached through
-  the PgBouncer pooler (`DB_HOST`); migrations connect direct (no pooler). pgx is
-  configured for transaction-mode pooling (simple protocol, prepared-statement and
-  description caches disabled) so it works behind PgBouncer.
+- Kyverno admission rejects bad images. The published image is
+  `ghcr.io/duynhlab/review-service/review-service:<tag>` — the repository path
+  repeats, and the tag carries no `v` prefix. There is no separate migration
+  image; the init container reuses the app image with `args: ["migrate"]`. Never
+  `:latest`.
+- Metrics leave over OTLP. There is no `/metrics` endpoint and nothing scrapes
+  this service.
+
+## API change synchronization
+
+An API change is not done when the code compiles.
+
+- The contract in homelab and this repository move **together** — same change,
+  and either the same PR pair or an immediate follow-up.
+- Behaviour that is designed but not deployed is marked **`Planned`** in the
+  contract; it is never described as current.
+- A material mismatch between the contract and this implementation **blocks the
+  release tag** until it is reconciled or explicitly accepted.
