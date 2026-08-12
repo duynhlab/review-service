@@ -42,9 +42,9 @@ type Config struct {
 	Profiling       ProfilingConfig // Pyroscope continuous profiling
 	Logging         LoggingConfig   // Structured logging (Zap)
 	Database        DatabaseConfig  // PostgreSQL database configuration
-	JWKSURL         string          // Auth JWKS endpoint for local JWT verification - from AUTH_JWKS_URL env
-	JWTIssuer       string          // Expected JWT issuer (iss claim) - from JWT_ISSUER env
-	JWTAudience     string          // Expected JWT audience (aud claim) - from JWT_AUDIENCE env
+	OIDCIssuer      string          // Expected OIDC issuer (Keycloak realm) - from OIDC_ISSUER env
+	OIDCAudience    string          // Expected OIDC audience - from OIDC_AUDIENCE env
+	OIDCJWKSURL     string          // Optional JWKS endpoint override - from OIDC_JWKS_URL env (empty: authmw derives it from the issuer)
 	ShutdownTimeout int             // Graceful shutdown timeout in seconds - from SHUTDOWN_TIMEOUT env (default: 10)
 	// ReadinessDrainDelay: delay after failing readiness before shutting down the HTTP server.
 	// This gives Kubernetes/Service routing time to stop sending new traffic.
@@ -161,9 +161,9 @@ func Load() *Config {
 			PoolMode:       getEnv("DB_POOL_MODE", ""),
 			PoolerType:     getEnv("DB_POOLER_TYPE", ""),
 		},
-		JWKSURL:             getEnv("AUTH_JWKS_URL", "http://auth.auth.svc.cluster.local:8080/auth/v1/public/auth/jwks"),
-		JWTIssuer:           getEnv("JWT_ISSUER", "https://gateway.duynh.me"),
-		JWTAudience:         getEnv("JWT_AUDIENCE", "duynhlab-platform"),
+		OIDCIssuer:          getEnv("OIDC_ISSUER", "https://id.duynh.me/realms/duynhlab"),
+		OIDCAudience:        getEnv("OIDC_AUDIENCE", "duynhlab-platform"),
+		OIDCJWKSURL:         getEnv("OIDC_JWKS_URL", ""),
 		ShutdownTimeout:     getEnvDurationSeconds("SHUTDOWN_TIMEOUT", 10),
 		ReadinessDrainDelay: getEnvDurationSecondsWithMax("READINESS_DRAIN_DELAY", 5, 30),
 	}

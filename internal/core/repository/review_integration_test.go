@@ -109,12 +109,17 @@ func applySQLDir(t *testing.T, ctx context.Context, conn *pgx.Conn, dir string) 
 	}
 }
 
+// Fixed Keycloak realm subjects used by the dev seed (ADR-042).
+const (
+	seedAlice = "a11ce000-0000-4000-8000-000000000001"
+)
+
 func TestReviewRepository_Integration(t *testing.T) {
 	pool := newTestDB(t)
 	repo := NewReviewRepository(pool)
 	ctx := context.Background()
 
-	// Seed (000002) loads product_id=1 with 3 reviews (users 1, 3, 4).
+	// Seed loads product_id=1 with 3 reviews (alice, charlie, david subjects).
 	t.Run("ListReviewsByProduct returns seeded reviews newest-first", func(t *testing.T) {
 		reviews, err := repo.ListReviewsByProduct(ctx, 1, 10, 0)
 		if err != nil {
@@ -154,14 +159,14 @@ func TestReviewRepository_Integration(t *testing.T) {
 	})
 
 	t.Run("GetReviewByProductAndUser found / not found", func(t *testing.T) {
-		got, err := repo.GetReviewByProductAndUser(ctx, 1, 1) // seeded (1,1)
+		got, err := repo.GetReviewByProductAndUser(ctx, 1, seedAlice) // seeded (1, alice)
 		if err != nil {
 			t.Fatalf("GetReviewByProductAndUser: %v", err)
 		}
 		if got == nil {
-			t.Fatal("want existing review for (product 1, user 1), got nil")
+			t.Fatal("want existing review for (product 1, alice), got nil")
 		}
-		missing, err := repo.GetReviewByProductAndUser(ctx, 999, 999)
+		missing, err := repo.GetReviewByProductAndUser(ctx, 999, "no-such-subject")
 		if err != nil {
 			t.Fatalf("GetReviewByProductAndUser(missing): %v", err)
 		}
@@ -172,7 +177,7 @@ func TestReviewRepository_Integration(t *testing.T) {
 
 	t.Run("CreateReview inserts and returns id + created_at", func(t *testing.T) {
 		got, err := repo.CreateReview(ctx, domain.Review{
-			ProductID: "42", UserID: "8", Rating: 5, Title: "New", Comment: "Fresh review",
+			ProductID: "42", UserID: seedAlice, Rating: 5, Title: "New", Comment: "Fresh review",
 		})
 		if err != nil {
 			t.Fatalf("CreateReview: %v", err)
@@ -185,11 +190,47 @@ func TestReviewRepository_Integration(t *testing.T) {
 		}
 	})
 
+	t.Run("CreateReview stores a non-numeric OIDC subject verbatim", func(t *testing.T) {
+		// Regression for the swallowed conversion (`userID, _ := strconv.Atoi(...)`):
+		// a non-numeric subject must round-trip to the DB intact. Under the old
+		// code it was silently written as user_id=0.
+		const subject = "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+		created, err := repo.CreateReview(ctx, domain.Review{
+			ProductID: "77", UserID: subject, Rating: 4, Title: "Opaque", Comment: "subject round-trip",
+		})
+		if err != nil {
+			t.Fatalf("CreateReview: %v", err)
+		}
+		if created.UserID != subject {
+			t.Errorf("created.UserID = %q, want %q", created.UserID, subject)
+		}
+
+		stored, err := repo.ListReviewsByProduct(ctx, 77, 10, 0)
+		if err != nil {
+			t.Fatalf("ListReviewsByProduct: %v", err)
+		}
+		if len(stored) != 1 {
+			t.Fatalf("len = %d, want 1", len(stored))
+		}
+		if stored[0].UserID != subject {
+			t.Errorf("stored user_id = %q, want the exact subject %q (old code stored 0)", stored[0].UserID, subject)
+		}
+
+		// And the duplicate pre-check must find it by the exact string.
+		found, err := repo.GetReviewByProductAndUser(ctx, 77, subject)
+		if err != nil {
+			t.Fatalf("GetReviewByProductAndUser: %v", err)
+		}
+		if found == nil {
+			t.Error("want the stored review found by its exact subject, got nil")
+		}
+	})
+
 	t.Run("CreateReview maps unique violation to ErrDuplicateReview", func(t *testing.T) {
-		// (product 1, user 1) already exists in the seed; the V3 unique
+		// (product 1, alice) already exists in the seed; the V3 unique
 		// constraint must trip and be translated.
 		_, err := repo.CreateReview(ctx, domain.Review{
-			ProductID: "1", UserID: "1", Rating: 3, Title: "Dup", Comment: "again",
+			ProductID: "1", UserID: seedAlice, Rating: 3, Title: "Dup", Comment: "again",
 		})
 		if !errors.Is(err, domain.ErrDuplicateReview) {
 			t.Errorf("err = %v, want ErrDuplicateReview", err)

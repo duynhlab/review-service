@@ -96,6 +96,10 @@ Rules an implementer can violate at the keyboard.
   `req.UserID` with `c.GetString("user_id")`, and the request struct deliberately
   leaves that field non-required so it *can* be overwritten. Accepting a user id
   from the body would let anyone review as anyone.
+- **`user_id` is the OIDC token subject — an opaque string, never an integer**
+  (ADR-042). The insert used to run it through `strconv.Atoi` and discard the
+  error, silently storing `0` for every non-numeric subject; the conversion is
+  gone and a regression test pins the round-trip. Do not reintroduce a parse.
 - **The database is the uniqueness authority, not the pre-check.** One review per
   (product, user) is enforced by a unique constraint; the pre-check is a nicety
   that a concurrent insert can slip past. The repository maps SQLSTATE `23505` to
