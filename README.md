@@ -1,125 +1,65 @@
 # review-service
 
-Product review microservice for ratings and comments.
+Product reviews and star ratings — the only writer of the `reviews` table, and
+the read path that serves them to the storefront and to product-service.
 
-Module path: `github.com/duynhlab/review-service`.
+## Responsibilities
 
-## Features
+- **Owns:** reviews and their star ratings, one per product per user, and the
+  two read surfaces that expose them.
+- **Does not own:** products (`product-service`), identity or token issuance
+  (`auth-service`, `user-service`), and rating **aggregation** — no average is
+  computed here. Reviews are also write-once: there is no update or delete path.
 
-- Create product reviews (one per user per product)
-- List reviews by product
-- Duplicate prevention (unique `(product_id, user_id)`, race-safe at DB level)
+## Tech
 
-## Transport
+| Area | Technology |
+|------|------------|
+| Runtime | Go 1.26 |
+| Transports | HTTP (public read, private write) · gRPC (east-west read) |
+| Data | PostgreSQL — one table, `reviews` |
+| Platform libraries | `authmw`, `dbx`, `grpcx`, `httpx`, `logger/zapx`, `migratex`, `obsx`, `proto` |
 
-review-service speaks both HTTP (north-south) and gRPC (east-west). gRPC is the
-official east-west transport.
+## API
 
-### HTTP API (`:8080`)
+- **Canonical contract:** [`homelab/docs/api/review.md`](https://github.com/duynhlab/homelab/blob/main/docs/api/review.md)
+- **Shared conventions:** [`homelab/docs/api/api.md`](https://github.com/duynhlab/homelab/blob/main/docs/api/api.md)
+- **Surfaces:** a public HTTP read and a JWT-protected HTTP write, plus
+  `review.v1.ReviewService` for east-west reads — product-service calls it to
+  put reviews on a product page. HTTP `:8080` also carries `/health` and
+  `/ready`.
 
-All routes follow Variant A naming — single path for browser and in-cluster callers. See [homelab naming convention](https://github.com/duynhlab/homelab/blob/main/docs/api/api-naming-convention.md).
+Routes, payloads and error codes live in the contract, so there is one place to
+change when they change.
 
-| Method | Path | Audience |
-|--------|------|----------|
-| `GET` | `/review/v1/public/reviews?product_id={id}` | public (`product_id` query param required) |
-| `POST` | `/review/v1/private/reviews` | private (JWT enforced) |
+## Run locally
 
-Infra endpoints: `GET /health`, `GET /ready` (503 while draining), `GET /metrics`.
+Prefer the homelab **local-stack** — reviews are most useful with a product
+catalog and a signed token in front of them.
 
-JWT on `private` routes is validated locally by the shared `pkg/authmw`
-middleware, verifying RS256 tokens against the auth service's JWKS
-(`AUTH_JWKS_URL`). The authenticated `user_id` is taken from context, never
-from the request body.
-
-### gRPC (`:9090`)
-
-review-service runs a gRPC server:
-
-- **Server** — exposes `review.v1.ReviewService/GetProductReviews`, called by
-  `product-service` for the product-details aggregation. Mirrors
-  `GET /review/v1/public/reviews` and returns identical data.
-
-The gRPC server is built via the shared `pkg/grpcx` bootstrap (OpenTelemetry stats
-handler, gRPC health service, server reflection) and always runs alongside the
-HTTP listener.
-
-## Tech Stack
-
-- Go 1.26 + Gin
-- PostgreSQL (`supporting-shared-db`, Zalando Postgres Operator) via `pgx/v5`
-- gRPC (`pkg/grpcx`), JWT validation via `pkg/authmw`
-- OpenTelemetry traces + metrics via `pkg/obsx`
-
-## Observability
-
-- **Tracing**: OpenTelemetry → OTel Collector (OTLP/HTTP). Spans per layer (`web`, `logic`).
-- **Metrics**: `obsx.SetupMetrics()` bridges OpenTelemetry metrics into the default
-  Prometheus registry, so gRPC RED metrics (`rpc_server_*` from the gRPC server)
-  surface on the **same** `/metrics` endpoint as
-  the HTTP RED metrics (`request_duration_seconds`, …). No separate metrics port; the
-  platform ServiceMonitor scrapes `/metrics`.
-- **Logging**: structured Zap. The logging middleware uses `obsx.TraceIDFromContext`
-  so each log line carries the active span's `trace_id`.
-- **Profiling**: Pyroscope continuous profiling (when enabled).
-- Middleware chain (HTTP): tracing → logging → metrics.
-
-## Development
-
-### Prerequisites
-
-- Go 1.26+
-- [golangci-lint](https://golangci-lint.run/welcome/install/) v2+
-- Docker (only for the integration tests — see [Testing](#testing))
-
-### Local Development
+Standalone you need PostgreSQL reachable through the `DB_*` variables:
 
 ```bash
-# Install dependencies
-go mod tidy
-go mod download
+go run cmd/main.go migrate   # apply schema migrations
+go run cmd/main.go seed      # demo reviews — development only, refuses production
+go run cmd/main.go           # serve HTTP :8080 + gRPC :9090
+```
 
-# Build
+## Verify
+
+The commands CI runs, so a green local run means a green pipeline:
+
+```bash
 go build ./...
-
-# Test
-go test ./...
-
-# Lint (must pass before PR merge)
-golangci-lint run --timeout=10m
-
-# Run locally (requires .env or env vars)
-go run cmd/main.go
+go test -race ./...
+go test -tags=integration ./internal/core/repository/...   # needs Docker (testcontainers)
+golangci-lint run
 ```
 
-### Testing
+## Docs
 
-Unit tests use the stdlib `testing` package with hand-written mocks and table-driven
-subtests (no testify/gomock). The **repository layer** is covered by **integration tests**
-against a real PostgreSQL via [testcontainers](https://golang.testcontainers.org/).
-
-```bash
-# Unit tests (no Docker)
-go test ./...
-
-# With coverage (as CI runs it)
-go test -race -coverprofile=coverage.out ./...
-
-# Integration tests — repository layer, real Postgres (needs a running Docker daemon)
-go test -tags=integration ./internal/core/repository/...
-```
-
-Integration tests are build-tagged `//go:build integration`, so the default `go test ./...`
-skips them and the service binary never links testcontainers. CI runs both jobs and merges
-their coverage into SonarCloud (gate: ≥ 80% on new code).
-
-### Pre-push Checklist
-
-```bash
-go build ./... && \
-  go test ./... && \
-  go test -tags=integration ./internal/core/repository/... && \
-  golangci-lint run --timeout=10m
-```
+- [Canonical contract](https://github.com/duynhlab/homelab/blob/main/docs/api/review.md)
+- [local-stack guide](https://github.com/duynhlab/homelab/blob/main/local-stack/README.md)
 
 ## License
 
