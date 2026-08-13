@@ -5,7 +5,7 @@
 CREATE TABLE IF NOT EXISTS reviews (
     id SERIAL PRIMARY KEY,
     product_id INTEGER NOT NULL,
-    user_id INTEGER NOT NULL,  -- References auth.users.id (cross-cluster, no FK)
+    user_id VARCHAR(255) NOT NULL,  -- OIDC token subject (Keycloak `sub`), opaque string (ADR-042; cross-cluster, no FK)
     rating INTEGER CHECK (rating >= 1 AND rating <= 5),
     title VARCHAR(255),
     comment TEXT,

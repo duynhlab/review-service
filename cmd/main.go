@@ -122,11 +122,15 @@ func main() {
 	service := logicv1.NewReviewService(repo)
 	handler := v1.NewReviewHandler(service)
 
-	// Local JWT verification via JWKS — the only auth path (no gRPC fallback).
-	verifier, err := authmw.NewVerifier(cfg.JWKSURL, cfg.JWTIssuer, cfg.JWTAudience)
+	// Local JWT verification against the Keycloak realm JWKS — the only auth
+	// path (no gRPC fallback), so a verifier failure is fatal.
+	verifier, err := authmw.NewVerifier(authmw.Config{
+		Issuer:   cfg.OIDCIssuer,
+		Audience: cfg.OIDCAudience,
+		JWKSURL:  cfg.OIDCJWKSURL,
+	})
 	if err != nil {
-		logger.Fatal("Failed to initialize JWT verifier",
-			zap.String("jwks_url", cfg.JWKSURL), zap.Error(err))
+		logger.Fatal("Failed to initialize JWT verifier", zap.Error(err))
 	}
 
 	// Internal gRPC server (east-west). HTTP :8080 is unaffected.

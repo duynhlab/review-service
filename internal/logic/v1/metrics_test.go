@@ -78,7 +78,7 @@ func TestReviewBusinessMetrics(t *testing.T) {
 
 	okRepo := func() *mockReviewRepository {
 		return &mockReviewRepository{
-			getFn: func(_ context.Context, _, _ int) (*domain.Review, error) { return nil, nil },
+			getFn: func(_ context.Context, _ int, _ string) (*domain.Review, error) { return nil, nil },
 			createFn: func(_ context.Context, r domain.Review) (*domain.Review, error) {
 				r.ID = "1"
 				return &r, nil
@@ -101,7 +101,7 @@ func TestReviewBusinessMetrics(t *testing.T) {
 
 	// Duplicate pre-check rejection → counter increments.
 	preCheckDup := v1.NewReviewService(&mockReviewRepository{
-		getFn: func(_ context.Context, _, _ int) (*domain.Review, error) {
+		getFn: func(_ context.Context, _ int, _ string) (*domain.Review, error) {
 			return &domain.Review{ID: "55"}, nil
 		},
 	})
@@ -113,7 +113,7 @@ func TestReviewBusinessMetrics(t *testing.T) {
 
 	// Unique-violation race on insert → counter increments again.
 	raceDup := v1.NewReviewService(&mockReviewRepository{
-		getFn: func(_ context.Context, _, _ int) (*domain.Review, error) { return nil, nil },
+		getFn: func(_ context.Context, _ int, _ string) (*domain.Review, error) { return nil, nil },
 		createFn: func(_ context.Context, _ domain.Review) (*domain.Review, error) {
 			return nil, domain.ErrDuplicateReview
 		},

@@ -27,7 +27,7 @@ type mockReviewRepo struct {
 	listFn   func(ctx context.Context, productID, limit, offset int) ([]domain.Review, error)
 	countFn  func(ctx context.Context, productID int) (int, error)
 	createFn func(ctx context.Context, review domain.Review) (*domain.Review, error)
-	getFn    func(ctx context.Context, productID, userID int) (*domain.Review, error)
+	getFn    func(ctx context.Context, productID int, userID string) (*domain.Review, error)
 }
 
 func (m *mockReviewRepo) ListReviewsByProduct(ctx context.Context, productID, limit, offset int) ([]domain.Review, error) {
@@ -51,7 +51,7 @@ func (m *mockReviewRepo) CreateReview(ctx context.Context, review domain.Review)
 	return m.createFn(ctx, review)
 }
 
-func (m *mockReviewRepo) GetReviewByProductAndUser(ctx context.Context, productID, userID int) (*domain.Review, error) {
+func (m *mockReviewRepo) GetReviewByProductAndUser(ctx context.Context, productID int, userID string) (*domain.Review, error) {
 	if m.getFn == nil {
 		return nil, nil
 	}
@@ -160,14 +160,15 @@ func TestListReviews_ServiceError(t *testing.T) {
 
 func TestCreateReview_Success(t *testing.T) {
 	repo := &mockReviewRepo{
-		getFn: func(_ context.Context, _, _ int) (*domain.Review, error) { return nil, nil },
+		getFn: func(_ context.Context, _ int, _ string) (*domain.Review, error) { return nil, nil },
 		createFn: func(_ context.Context, r domain.Review) (*domain.Review, error) {
 			r.ID = "100"
 			return &r, nil
 		},
 	}
 	body := `{"product_id":"10","rating":5,"comment":"Loved it"}`
-	c, rec := ctxWithBody(http.MethodPost, "/review/v1/private/reviews", "20", body)
+	// The authenticated user_id is an OIDC token subject — an opaque string.
+	c, rec := ctxWithBody(http.MethodPost, "/review/v1/private/reviews", "a11ce000-0000-4000-8000-000000000001", body)
 
 	newHandler(repo).CreateReview(c)
 
@@ -205,10 +206,11 @@ func TestCreateReview_ValidationError(t *testing.T) {
 	}
 }
 
-func TestCreateReview_InvalidUserID(t *testing.T) {
-	// A non-numeric user_id surfaces ErrInvalidInput from the logic layer → 400.
+func TestCreateReview_MissingUserID(t *testing.T) {
+	// user_id is the OIDC token subject — opaque, so non-numeric values are
+	// valid; only a missing/empty subject surfaces ErrInvalidInput → 400.
 	body := `{"product_id":"10","rating":5,"comment":"ok"}`
-	c, rec := ctxWithBody(http.MethodPost, "/review/v1/private/reviews", "not-numeric", body)
+	c, rec := ctxWithBody(http.MethodPost, "/review/v1/private/reviews", "", body)
 	newHandler(&mockReviewRepo{}).CreateReview(c)
 
 	if rec.Code != http.StatusBadRequest {
@@ -221,7 +223,7 @@ func TestCreateReview_InvalidUserID(t *testing.T) {
 
 func TestCreateReview_Duplicate(t *testing.T) {
 	repo := &mockReviewRepo{
-		getFn: func(_ context.Context, _, _ int) (*domain.Review, error) {
+		getFn: func(_ context.Context, _ int, _ string) (*domain.Review, error) {
 			return &domain.Review{ID: "55"}, nil // existing review
 		},
 	}
@@ -240,7 +242,7 @@ func TestCreateReview_Duplicate(t *testing.T) {
 
 func TestCreateReview_ServiceError(t *testing.T) {
 	repo := &mockReviewRepo{
-		getFn: func(_ context.Context, _, _ int) (*domain.Review, error) {
+		getFn: func(_ context.Context, _ int, _ string) (*domain.Review, error) {
 			return nil, context.DeadlineExceeded
 		},
 	}

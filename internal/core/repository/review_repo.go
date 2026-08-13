@@ -35,7 +35,8 @@ func (r *pgxReviewRepository) ListReviewsByProduct(ctx context.Context, productI
 
 	var reviews []domain.Review
 	for rows.Next() {
-		var reviewID, dbProductID, userID int
+		var reviewID, dbProductID int
+		var userID string
 		var rating int
 		var title, comment *string
 		var createdAt *time.Time
@@ -47,7 +48,7 @@ func (r *pgxReviewRepository) ListReviewsByProduct(ctx context.Context, productI
 		review := domain.Review{
 			ID:        strconv.Itoa(reviewID),
 			ProductID: strconv.Itoa(dbProductID),
-			UserID:    strconv.Itoa(userID),
+			UserID:    userID,
 			Rating:    rating,
 			CreatedAt: createdAt,
 		}
@@ -79,14 +80,14 @@ func (r *pgxReviewRepository) CountReviewsByProduct(ctx context.Context, product
 
 func (r *pgxReviewRepository) CreateReview(ctx context.Context, review domain.Review) (*domain.Review, error) {
 	prodID, _ := strconv.Atoi(review.ProductID)
-	userID, _ := strconv.Atoi(review.UserID)
 
 	query := `INSERT INTO reviews (product_id, user_id, rating, title, comment) VALUES ($1, $2, $3, $4, $5) RETURNING id, created_at`
 
 	var reviewID int
 	var createdAt time.Time
 
-	err := r.pool.QueryRow(ctx, query, prodID, userID, review.Rating, review.Title, review.Comment).Scan(&reviewID, &createdAt)
+	// UserID is the OIDC token subject — an opaque string stored verbatim.
+	err := r.pool.QueryRow(ctx, query, prodID, review.UserID, review.Rating, review.Title, review.Comment).Scan(&reviewID, &createdAt)
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == pgUniqueViolation {
@@ -100,7 +101,7 @@ func (r *pgxReviewRepository) CreateReview(ctx context.Context, review domain.Re
 	return &review, nil
 }
 
-func (r *pgxReviewRepository) GetReviewByProductAndUser(ctx context.Context, productID, userID int) (*domain.Review, error) {
+func (r *pgxReviewRepository) GetReviewByProductAndUser(ctx context.Context, productID int, userID string) (*domain.Review, error) {
 	query := `SELECT id FROM reviews WHERE product_id = $1 AND user_id = $2`
 	var id int
 	err := r.pool.QueryRow(ctx, query, productID, userID).Scan(&id)
