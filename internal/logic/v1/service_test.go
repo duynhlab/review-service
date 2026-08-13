@@ -28,7 +28,7 @@ type mockReviewRepository struct {
 	listFn   func(ctx context.Context, productID, limit, offset int) ([]domain.Review, error)
 	countFn  func(ctx context.Context, productID int) (int, error)
 	createFn func(ctx context.Context, review domain.Review) (*domain.Review, error)
-	getFn    func(ctx context.Context, productID, userID int) (*domain.Review, error)
+	getFn    func(ctx context.Context, productID int, userID string) (*domain.Review, error)
 }
 
 func (m *mockReviewRepository) ListReviewsByProduct(ctx context.Context, productID, limit, offset int) ([]domain.Review, error) {
@@ -52,7 +52,7 @@ func (m *mockReviewRepository) CreateReview(ctx context.Context, review domain.R
 	return m.createFn(ctx, review)
 }
 
-func (m *mockReviewRepository) GetReviewByProductAndUser(ctx context.Context, productID, userID int) (*domain.Review, error) {
+func (m *mockReviewRepository) GetReviewByProductAndUser(ctx context.Context, productID int, userID string) (*domain.Review, error) {
 	if m.getFn == nil {
 		return nil, nil
 	}
@@ -67,7 +67,7 @@ func TestReviewService_CreateReview(t *testing.T) {
 	validReq := func() domain.CreateReviewRequest {
 		return domain.CreateReviewRequest{
 			ProductID: "10",
-			UserID:    "20",
+			UserID:    "a11ce000-0000-4000-8000-000000000001", // OIDC token subject (opaque string)
 			Rating:    5,
 			Title:     "Great",
 			Comment:   "Loved it",
@@ -85,7 +85,7 @@ func TestReviewService_CreateReview(t *testing.T) {
 			name: "success",
 			req:  validReq(),
 			repo: &mockReviewRepository{
-				getFn: func(_ context.Context, _, _ int) (*domain.Review, error) {
+				getFn: func(_ context.Context, _ int, _ string) (*domain.Review, error) {
 					return nil, nil // no existing review
 				},
 				createFn: func(_ context.Context, r domain.Review) (*domain.Review, error) {
@@ -102,7 +102,7 @@ func TestReviewService_CreateReview(t *testing.T) {
 			name: "duplicate review pre-check",
 			req:  validReq(),
 			repo: &mockReviewRepository{
-				getFn: func(_ context.Context, _, _ int) (*domain.Review, error) {
+				getFn: func(_ context.Context, _ int, _ string) (*domain.Review, error) {
 					return &domain.Review{ID: "55"}, nil // existing review found
 				},
 			},
@@ -112,7 +112,7 @@ func TestReviewService_CreateReview(t *testing.T) {
 			name: "duplicate review race on insert",
 			req:  validReq(),
 			repo: &mockReviewRepository{
-				getFn: func(_ context.Context, _, _ int) (*domain.Review, error) {
+				getFn: func(_ context.Context, _ int, _ string) (*domain.Review, error) {
 					return nil, nil // pre-check passes
 				},
 				createFn: func(_ context.Context, _ domain.Review) (*domain.Review, error) {
@@ -140,8 +140,10 @@ func TestReviewService_CreateReview(t *testing.T) {
 			wantErr: v1.ErrInvalidInput,
 		},
 		{
-			name:    "non-numeric user id",
-			req:     domain.CreateReviewRequest{ProductID: "10", UserID: "xyz", Rating: 5, Comment: "x"},
+			// The user id is the OIDC token subject — opaque, so only
+			// emptiness is invalid (non-numeric subjects are valid now).
+			name:    "empty user id",
+			req:     domain.CreateReviewRequest{ProductID: "10", UserID: "", Rating: 5, Comment: "x"},
 			repo:    &mockReviewRepository{},
 			wantErr: v1.ErrInvalidInput,
 		},
@@ -149,7 +151,7 @@ func TestReviewService_CreateReview(t *testing.T) {
 			name: "repo error on existence check",
 			req:  validReq(),
 			repo: &mockReviewRepository{
-				getFn: func(_ context.Context, _, _ int) (*domain.Review, error) {
+				getFn: func(_ context.Context, _ int, _ string) (*domain.Review, error) {
 					return nil, errRepo
 				},
 			},
@@ -159,7 +161,7 @@ func TestReviewService_CreateReview(t *testing.T) {
 			name: "repo error on insert",
 			req:  validReq(),
 			repo: &mockReviewRepository{
-				getFn: func(_ context.Context, _, _ int) (*domain.Review, error) {
+				getFn: func(_ context.Context, _ int, _ string) (*domain.Review, error) {
 					return nil, nil
 				},
 				createFn: func(_ context.Context, _ domain.Review) (*domain.Review, error) {
@@ -200,6 +202,51 @@ func TestReviewService_CreateReview(t *testing.T) {
 				t.Errorf("CreateReview() = %+v, did not carry request fields", got)
 			}
 		})
+	}
+}
+
+// TestReviewService_CreateReview_SubjectRoundTrip is the regression test for
+// the swallowed user-id conversion: a non-numeric OIDC subject must reach the
+// repository layer verbatim, both on the duplicate pre-check and on the insert.
+// Under the old code (`userID, _ := strconv.Atoi(review.UserID)` in the
+// repository) a non-numeric subject silently became user_id=0 in the DB.
+func TestReviewService_CreateReview_SubjectRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	const subject = "f47ac10b-58cc-4372-a567-0e02b2c3d479" // non-numeric Keycloak `sub`
+
+	var gotCheckUserID, gotInsertUserID string
+	repo := &mockReviewRepository{
+		getFn: func(_ context.Context, _ int, userID string) (*domain.Review, error) {
+			gotCheckUserID = userID
+			return nil, nil // no existing review
+		},
+		createFn: func(_ context.Context, r domain.Review) (*domain.Review, error) {
+			gotInsertUserID = r.UserID
+			r.ID = "100"
+			return &r, nil
+		},
+	}
+
+	svc := v1.NewReviewService(repo)
+	created, err := svc.CreateReview(context.Background(), domain.CreateReviewRequest{
+		ProductID: "10",
+		UserID:    subject,
+		Rating:    5,
+		Comment:   "opaque subject",
+	})
+	if err != nil {
+		t.Fatalf("CreateReview() unexpected error = %v", err)
+	}
+
+	if gotCheckUserID != subject {
+		t.Errorf("duplicate pre-check received user id %q, want the exact subject %q", gotCheckUserID, subject)
+	}
+	if gotInsertUserID != subject {
+		t.Errorf("repository insert received user id %q, want the exact subject %q (old code silently stored 0)", gotInsertUserID, subject)
+	}
+	if created.UserID != subject {
+		t.Errorf("created review user id = %q, want %q", created.UserID, subject)
 	}
 }
 

@@ -62,18 +62,19 @@ func (s *ReviewService) CreateReview(ctx context.Context, req domain.CreateRevie
 		return nil, fmt.Errorf("create review for product %q with rating %d: %w", req.ProductID, req.Rating, ErrInvalidRating)
 	}
 
-	// Convert IDs to int
+	// Products are SERIAL-keyed, so the product id must be numeric.
 	productID, err := strconv.Atoi(req.ProductID)
 	if err != nil {
 		return nil, fmt.Errorf("invalid product id %q: %w", req.ProductID, ErrInvalidInput)
 	}
-	userID, err := strconv.Atoi(req.UserID)
-	if err != nil {
-		return nil, fmt.Errorf("invalid user id %q: %w", req.UserID, ErrInvalidInput)
+	// The user id is the OIDC token subject — an opaque string, so only
+	// emptiness is invalid.
+	if req.UserID == "" {
+		return nil, fmt.Errorf("user id is required: %w", ErrInvalidInput)
 	}
 
 	// Check for duplicate review
-	existing, err := s.repo.GetReviewByProductAndUser(ctx, productID, userID)
+	existing, err := s.repo.GetReviewByProductAndUser(ctx, productID, req.UserID)
 	if err != nil {
 		span.RecordError(err)
 		return nil, fmt.Errorf("check existing review: %w", err)

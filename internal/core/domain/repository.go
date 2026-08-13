@@ -22,6 +22,7 @@ type ReviewRepository interface {
 	// CreateReview creates a new review.
 	CreateReview(ctx context.Context, review Review) (*Review, error)
 
-	// GetReviewByProductAndUser checks if a review already exists for a product by a user.
-	GetReviewByProductAndUser(ctx context.Context, productID, userID int) (*Review, error)
+	// GetReviewByProductAndUser checks if a review already exists for a product
+	// by a user. The user id is the OIDC token subject — an opaque string.
+	GetReviewByProductAndUser(ctx context.Context, productID int, userID string) (*Review, error)
 }
