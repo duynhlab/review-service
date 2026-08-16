@@ -4,10 +4,10 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/duynhlab/pkg/httpmw"
+	"github.com/duynhlab/pkg/httpx"
 	"github.com/duynhlab/review-service/internal/core/domain"
 	logicv1 "github.com/duynhlab/review-service/internal/logic/v1"
-	"github.com/duynhlab/review-service/middleware"
-	"github.com/duynhlab/pkg/httpx"
 	"github.com/gin-gonic/gin"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
@@ -27,7 +27,7 @@ func (h *ReviewHandler) ListReviews(c *gin.Context) {
 	// rather than minting a duplicate. Do not end it — otelgin owns its lifecycle.
 	ctx := c.Request.Context()
 	span := trace.SpanFromContext(ctx)
-	zapLogger := middleware.GetLoggerFromGinContext(c)
+	zapLogger := httpmw.LoggerFrom(c)
 
 	// Parse product_id from query string (required)
 	productID := c.Query("product_id")
@@ -59,7 +59,7 @@ func (h *ReviewHandler) ListReviews(c *gin.Context) {
 func (h *ReviewHandler) CreateReview(c *gin.Context) {
 	ctx := c.Request.Context()
 	span := trace.SpanFromContext(ctx)
-	zapLogger := middleware.GetLoggerFromGinContext(c)
+	zapLogger := httpmw.LoggerFrom(c)
 
 	var req domain.CreateReviewRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
