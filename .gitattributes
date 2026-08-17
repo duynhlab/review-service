@@ -1,0 +1,3 @@
+# Go source is LF everywhere. Three files reached the repo as CRLF and
+# went unlinted for months because go-check only lints pull requests.
+*.go text eol=lf

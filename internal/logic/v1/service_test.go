@@ -3,23 +3,12 @@ package v1_test
 import (
 	"context"
 	"errors"
-	"os"
 	"testing"
 	"time"
 
 	"github.com/duynhlab/review-service/internal/core/domain"
 	v1 "github.com/duynhlab/review-service/internal/logic/v1"
-	"github.com/duynhlab/review-service/middleware"
 )
-
-// TestMain warms up the global OpenTelemetry tracer once, before any parallel
-// subtest runs. The logic layer calls middleware.StartSpan, whose GetTracer
-// lazily writes a package-level tracer on first use; doing that single-threaded
-// here avoids a benign data race on that lazy initialisation under -race.
-func TestMain(m *testing.M) {
-	middleware.GetTracer()
-	os.Exit(m.Run())
-}
 
 // mockReviewRepository is a configurable in-memory stub of
 // domain.ReviewRepository. Each method delegates to a function field so tests

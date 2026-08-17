@@ -6,11 +6,17 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/duynhlab/pkg/obsx"
 	"github.com/duynhlab/review-service/internal/core/domain"
-	"github.com/duynhlab/review-service/middleware"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 )
+
+// tracerScope is the OpenTelemetry instrumentation scope for this package's
+// spans: it names the CODE that creates them, which is why it is a package path
+// and not the service name. Deployment identity travels separately as
+// service.name on the Resource.
+const tracerScope = "github.com/duynhlab/review-service/internal/logic/v1"
 
 type ReviewService struct {
 	repo domain.ReviewRepository
@@ -21,7 +27,7 @@ func NewReviewService(repo domain.ReviewRepository) *ReviewService {
 }
 
 func (s *ReviewService) ListReviews(ctx context.Context, productID string, limit, offset int) ([]domain.Review, int, error) {
-	ctx, span := middleware.StartSpan(ctx, "review.list", trace.WithAttributes(
+	ctx, span := obsx.StartSpan(ctx, tracerScope, "review.list", trace.WithAttributes(
 		attribute.String("layer", "logic"),
 		attribute.String("product.id", productID),
 	))
@@ -50,7 +56,7 @@ func (s *ReviewService) ListReviews(ctx context.Context, productID string, limit
 }
 
 func (s *ReviewService) CreateReview(ctx context.Context, req domain.CreateReviewRequest) (*domain.Review, error) {
-	ctx, span := middleware.StartSpan(ctx, "review.create", trace.WithAttributes(
+	ctx, span := obsx.StartSpan(ctx, tracerScope, "review.create", trace.WithAttributes(
 		attribute.String("layer", "logic"),
 		attribute.String("product.id", req.ProductID),
 	))
