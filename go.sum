@@ -58,8 +58,8 @@ github.com/duynhlab/pkg/grpcx v0.36.1 h1:903Ebfd8kh3lMWf0X/PCXfnQ3J1UQPRc+3nax7e
 github.com/duynhlab/pkg/grpcx v0.36.1/go.mod h1:Ck4uez5IUMlwkFFRxDskKATZADRquF7L1zIICtbM4nM=
 github.com/duynhlab/pkg/httpmw v0.1.0 h1:YLN9CFIHgK3tQTWx1WKIXCSkPJ6slDB/tLZ7Beub/Bs=
 github.com/duynhlab/pkg/httpmw v0.1.0/go.mod h1:E5Bz4CXQJZnxvPMZR0gUC1U5jCMMt7fAGwRZ7E1Tck4=
-github.com/duynhlab/pkg/httpx v0.36.1 h1:U/Bia3HwruSzNjnYVUgDC4R23gR5s02sAeCEQyrExjw=
-github.com/duynhlab/pkg/httpx v0.36.1/go.mod h1:9JIPpqTo1HGpyZP5chvW1l7+6h0WiL6VNdng1N4TpIM=
+github.com/duynhlab/pkg/httpx v0.37.0 h1:aruBCkjo3DDOp3Q0j6NrT5ZLgglsUKUv8CeLpwn4tYE=
+github.com/duynhlab/pkg/httpx v0.37.0/go.mod h1:9JIPpqTo1HGpyZP5chvW1l7+6h0WiL6VNdng1N4TpIM=
 github.com/duynhlab/pkg/logger/zapx v0.36.0 h1:KYDOlgodIuNelGHjUCTKICDTMPaSrhbnqZ7wWUz4PuM=
 github.com/duynhlab/pkg/logger/zapx v0.36.0/go.mod h1:ZeoZcXSolDxJ4Tb3KbvvPy94hd6GJ0WfF/wBDmEvIWI=
 github.com/duynhlab/pkg/migratex v0.36.1 h1:N/Ro1jEIe4Hlf1hHLkc8mepuvqX4mk6qt8pp3YPUTOI=
