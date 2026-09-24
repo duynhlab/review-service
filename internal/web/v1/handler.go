@@ -41,11 +41,13 @@ func (h *ReviewHandler) ListReviews(c *gin.Context) {
 	reviews, total, err := h.service.ListReviews(ctx, productID, pageSize, httpx.Offset(page, pageSize))
 	if err != nil {
 		span.RecordError(err)
-		slogx.FromContext(ctx).Error(ctx, "Failed to list reviews", slogx.Err(err), slog.String("product.id", productID))
 		if errors.Is(err, logicv1.ErrInvalidInput) {
+			// The rejected value is text the caller typed: not logged.
+			slogx.FromContext(ctx).Warn(ctx, "Invalid product_id", slogx.Err(err))
 			httpx.RespondError(c, http.StatusBadRequest, httpx.CodeValidation, "Invalid product_id")
 			return
 		}
+		slogx.FromContext(ctx).Error(ctx, "Failed to list reviews", slogx.Err(err), slog.String("product.id", productID))
 		httpx.RespondError(c, http.StatusInternalServerError, httpx.CodeInternal, "Internal server error")
 		return
 	}
