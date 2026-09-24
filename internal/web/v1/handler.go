@@ -2,16 +2,16 @@ package v1
 
 import (
 	"errors"
+	"log/slog"
 	"net/http"
 
-	"github.com/duynhlab/pkg/httpmw"
 	"github.com/duynhlab/pkg/httpx"
+	"github.com/duynhlab/pkg/logger/slogx"
 	"github.com/duynhlab/review-service/internal/core/domain"
 	logicv1 "github.com/duynhlab/review-service/internal/logic/v1"
 	"github.com/gin-gonic/gin"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
-	"go.uber.org/zap"
 )
 
 type ReviewHandler struct {
@@ -27,13 +27,11 @@ func (h *ReviewHandler) ListReviews(c *gin.Context) {
 	// rather than minting a duplicate. Do not end it — otelgin owns its lifecycle.
 	ctx := c.Request.Context()
 	span := trace.SpanFromContext(ctx)
-	zapLogger := httpmw.LoggerFrom(c)
-
 	// Parse product_id from query string (required)
 	productID := c.Query("product_id")
 	if productID == "" {
 		span.SetAttributes(attribute.Bool("request.valid", false))
-		zapLogger.Error("Missing product_id query parameter")
+		slogx.FromContext(ctx).Error(ctx, "Missing product_id query parameter")
 		httpx.RespondError(c, http.StatusBadRequest, httpx.CodeValidation, "product_id query parameter is required")
 		return
 	}
@@ -43,7 +41,7 @@ func (h *ReviewHandler) ListReviews(c *gin.Context) {
 	reviews, total, err := h.service.ListReviews(ctx, productID, pageSize, httpx.Offset(page, pageSize))
 	if err != nil {
 		span.RecordError(err)
-		zapLogger.Error("Failed to list reviews", zap.Error(err), zap.String("product_id", productID))
+		slogx.FromContext(ctx).Error(ctx, "Failed to list reviews", slogx.Err(err), slog.String("product.id", productID))
 		if errors.Is(err, logicv1.ErrInvalidInput) {
 			httpx.RespondError(c, http.StatusBadRequest, httpx.CodeValidation, "Invalid product_id")
 			return
@@ -52,20 +50,18 @@ func (h *ReviewHandler) ListReviews(c *gin.Context) {
 		return
 	}
 
-	zapLogger.Info("Reviews listed", zap.Int("count", len(reviews)), zap.String("product_id", productID))
+	slogx.FromContext(ctx).Info(ctx, "Reviews listed", slog.Int("count", len(reviews)), slog.String("product.id", productID))
 	c.JSON(http.StatusOK, httpx.NewPaginated(reviews, page, pageSize, total))
 }
 
 func (h *ReviewHandler) CreateReview(c *gin.Context) {
 	ctx := c.Request.Context()
 	span := trace.SpanFromContext(ctx)
-	zapLogger := httpmw.LoggerFrom(c)
-
 	var req domain.CreateReviewRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		span.SetAttributes(attribute.Bool("request.valid", false))
 		span.RecordError(err)
-		zapLogger.Error("Invalid request", zap.Error(err))
+		slogx.FromContext(ctx).Warn(ctx, "Invalid request", slogx.Err(err))
 		httpx.RespondError(c, http.StatusBadRequest, httpx.CodeValidation, "invalid request body")
 		return
 	}
@@ -77,7 +73,7 @@ func (h *ReviewHandler) CreateReview(c *gin.Context) {
 	review, err := h.service.CreateReview(ctx, req)
 	if err != nil {
 		span.RecordError(err)
-		zapLogger.Error("Failed to create review", zap.Error(err))
+		slogx.FromContext(ctx).Error(ctx, "Failed to create review", slogx.Err(err))
 
 		switch {
 		case errors.Is(err, logicv1.ErrInvalidInput):
@@ -92,6 +88,6 @@ func (h *ReviewHandler) CreateReview(c *gin.Context) {
 		return
 	}
 
-	zapLogger.Info("Review created", zap.String("review_id", review.ID))
+	slogx.FromContext(ctx).Info(ctx, "Review created", slog.String("review.id", review.ID))
 	c.JSON(http.StatusCreated, review)
 }

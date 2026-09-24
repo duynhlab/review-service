@@ -36,7 +36,7 @@ func (s *ReviewService) ListReviews(ctx context.Context, productID string, limit
 	// Convert productID to int
 	prodID, err := strconv.Atoi(productID)
 	if err != nil {
-		return nil, 0, fmt.Errorf("invalid product_id %q: %w", productID, ErrInvalidInput)
+		return nil, 0, fmt.Errorf("invalid product_id: %w", ErrInvalidInput)
 	}
 
 	total, err := s.repo.CountReviewsByProduct(ctx, prodID)
@@ -71,7 +71,7 @@ func (s *ReviewService) CreateReview(ctx context.Context, req domain.CreateRevie
 	// Products are SERIAL-keyed, so the product id must be numeric.
 	productID, err := strconv.Atoi(req.ProductID)
 	if err != nil {
-		return nil, fmt.Errorf("invalid product id %q: %w", req.ProductID, ErrInvalidInput)
+		return nil, fmt.Errorf("invalid product id: %w", ErrInvalidInput)
 	}
 	// The user id is the OIDC token subject — an opaque string, so only
 	// emptiness is invalid.

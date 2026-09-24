@@ -9,8 +9,6 @@ import (
 	"go.opentelemetry.io/otel"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
-	"go.uber.org/zap"
-	"go.uber.org/zap/zaptest/observer"
 )
 
 // TestServer_GetProductReviews_TruncationLogged covers the branches added with
@@ -24,8 +22,7 @@ func TestServer_GetProductReviews_TruncationLogged(t *testing.T) {
 	reader := sdkmetric.NewManualReader()
 	otel.SetMeterProvider(sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader)))
 
-	core, logs := observer.New(zap.WarnLevel)
-	logger := zap.New(core)
+	logger, logs := newObserver("warn")
 
 	reviews := make([]domain.Review, grpcReviewLimit)
 	for i := range reviews {

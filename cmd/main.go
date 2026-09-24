@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -18,14 +19,12 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
 	"google.golang.org/grpc"
 
 	"github.com/duynhlab/pkg/authmw"
 	"github.com/duynhlab/pkg/grpcx"
 	"github.com/duynhlab/pkg/httpmw"
-	"github.com/duynhlab/pkg/logger/zapx"
+	"github.com/duynhlab/pkg/logger/slogx"
 	"github.com/duynhlab/pkg/migratex"
 	"github.com/duynhlab/pkg/obsx"
 	reviewv1 "github.com/duynhlab/pkg/proto/review/v1"
@@ -40,13 +39,11 @@ import (
 )
 
 func main() {
+	ctx := context.Background()
 	cfg := config.Load()
 
-	logger, err := zapx.New(os.Getenv("LOG_LEVEL"))
-	if err != nil {
-		panic("Failed to initialize logger: " + err.Error())
-	}
-	defer func() { _ = logger.Sync() }()
+	logger := slogx.New(slogx.Config{Level: os.Getenv("LOG_LEVEL")})
+	slogx.SetDefault(logger)
 
 	// Subcommands (`migrate`, `seed`) run an embedded SQL set and exit; no args
 	// serves the app.
@@ -58,11 +55,10 @@ func main() {
 		panic("Configuration validation failed: " + err.Error())
 	}
 
-	logger.Info("Service starting",
-		zap.String("service", cfg.Service.Name),
-		zap.String("version", cfg.Service.Version),
-		zap.String("env", cfg.Service.Env),
-		zap.String("port", cfg.Service.Port),
+	logger.Info(ctx, "Service starting",
+		slog.String("service.version", cfg.Service.Version),
+		slog.String("deployment.environment.name", cfg.Service.Env),
+		slog.String("port", cfg.Service.Port),
 	)
 
 	// RFC-0014: single OTel wiring point — traces per TRACING_ENABLED, OTLP
@@ -74,26 +70,20 @@ func main() {
 	var tp interface{ Shutdown(context.Context) error }
 	obs, err := obsx.SetupObservability(context.Background(), otelCfg)
 	if err != nil {
-		logger.Warn("Failed to initialize OpenTelemetry", zap.Error(err))
+		logger.Warn(ctx, "Failed to initialize OpenTelemetry", slogx.Err(err))
 	} else {
 		tp = obs
-		// RFC-0014 P4: tee application logs into the OTLP pipeline. ZapCore
-		// returns a NopCore when OTEL_LOGS_ENABLED is off, so the tee is
-		// unconditional; the min level mirrors the stdout core so debug
-		// lines never leave the pod on an info-level service.
-		minLevel, err := zapcore.ParseLevel(os.Getenv("LOG_LEVEL"))
-		if err != nil {
-			minLevel = zapcore.InfoLevel
-		}
-		logger = logger.WithOptions(zap.WrapCore(func(c zapcore.Core) zapcore.Core {
-			return zapcore.NewTee(c, obs.ZapCore(otelCfg.ServiceName, minLevel))
-		}))
-		logger.Info("OpenTelemetry initialized",
-			zap.Bool("traces", obs.Enabled().Traces),
-			zap.Bool("otlp_metrics", obs.Enabled().Metrics),
-			zap.Bool("otlp_logs", obs.Enabled().Logs),
-			zap.String("endpoint", otelCfg.Endpoint),
-			zap.Float64("sample_rate", otelCfg.SampleRate),
+		// The facade reaches OTLP through the global logger provider obsx
+		// installed; rebuilding it only wires Flush, so a Fatal record is
+		// exported before the process exits.
+		logger = slogx.New(slogx.Config{Level: os.Getenv("LOG_LEVEL"), Flush: obs.ForceFlush})
+		slogx.SetDefault(logger)
+		logger.Info(ctx, "OpenTelemetry initialized",
+			slog.Bool("traces", obs.Enabled().Traces),
+			slog.Bool("otlp_metrics", obs.Enabled().Metrics),
+			slog.Bool("otlp_logs", obs.Enabled().Logs),
+			slog.String("endpoint", otelCfg.Endpoint),
+			slog.Float64("sample_rate", otelCfg.SampleRate),
 		)
 	}
 
@@ -101,18 +91,18 @@ func main() {
 	defer func() {
 		if shutdownProfiling != nil {
 			if err := shutdownProfiling(context.Background()); err != nil {
-				logger.Error("Profiling shutdown error", zap.Error(err))
+				logger.Error(ctx, "Profiling shutdown error", slogx.Err(err))
 			}
 		}
 	}()
 
 	pool, err := database.Connect(context.Background(), cfg)
 	if err != nil {
-		logger.Error("Failed to connect to database", zap.Error(err))
+		logger.Error(ctx, "Failed to connect to database", slogx.Err(err))
 		return
 	}
 	defer pool.Close()
-	logger.Info("Database connection pool established")
+	logger.Info(ctx, "Database connection pool established")
 
 	var isShuttingDown atomic.Bool
 
@@ -129,7 +119,7 @@ func main() {
 		JWKSURL:  cfg.OIDCJWKSURL,
 	})
 	if err != nil {
-		logger.Fatal("Failed to initialize JWT verifier", zap.Error(err))
+		logger.Fatal(ctx, "Failed to initialize JWT verifier", slogx.Err(err))
 	}
 
 	// Internal gRPC server (east-west). HTTP :8080 is unaffected.
@@ -147,23 +137,24 @@ func main() {
 // environment (init container, direct DB host). `seed` applies DEV-ONLY demo
 // data and is invoked explicitly — never by `migrate` or the serve path — so
 // production databases are never seeded.
-func runSubcommand(cmd string, cfg *config.Config, logger *zap.Logger) bool {
+func runSubcommand(cmd string, cfg *config.Config, logger *slogx.Logger) bool {
+	ctx := context.Background()
 	switch cmd {
 	case "migrate":
 		if err := migratex.Run(migrations.FS, "sql", cfg.Database.BuildDSN()); err != nil {
-			logger.Fatal("Schema migration failed", zap.Error(err))
+			logger.Fatal(ctx, "Schema migration failed", slogx.Err(err))
 		}
-		logger.Info("Schema migrations applied")
+		logger.Info(ctx, "Schema migrations applied")
 		return true
 	case "seed":
 		// Demo data is DEV-ONLY; refuse to seed a production database.
 		if cfg.IsProduction() {
-			logger.Fatal("seed refused in production — demo data is dev-only")
+			logger.Fatal(ctx, "seed refused in production — demo data is dev-only")
 		}
 		if err := applySeed(cfg); err != nil {
-			logger.Fatal("Demo seed failed", zap.Error(err))
+			logger.Fatal(ctx, "Demo seed failed", slogx.Err(err))
 		}
-		logger.Info("Demo seed data applied")
+		logger.Info(ctx, "Demo seed data applied")
 		return true
 	default:
 		return false
@@ -218,46 +209,51 @@ func applySeed(cfg *config.Config) error {
 // east-west transport, so it always runs; it returns nil only if the listener
 // can't bind. The server uses the shared grpcx bootstrap (OpenTelemetry, health,
 // reflection).
-func startGRPC(cfg *config.Config, logger *zap.Logger, svc *logicv1.ReviewService) *grpc.Server {
+func startGRPC(cfg *config.Config, logger *slogx.Logger, svc *logicv1.ReviewService) *grpc.Server {
+	ctx := context.Background()
 	lc := net.ListenConfig{}
 	lis, err := lc.Listen(context.Background(), "tcp", ":"+cfg.GRPC.Port)
 	if err != nil {
-		logger.Error("Failed to listen for gRPC", zap.String("port", cfg.GRPC.Port), zap.Error(err))
+		logger.Error(ctx, "Failed to listen for gRPC", slog.String("port", cfg.GRPC.Port), slogx.Err(err))
 		return nil
 	}
 
-	grpcSrv, _ := grpcx.NewServer(logger)
+	grpcSrv, _ := grpcx.NewServer(logger.Slog())
 	reviewv1.RegisterReviewServiceServer(grpcSrv, grpcv1.NewServer(svc, logger))
 
 	go func() {
-		logger.Info("Starting gRPC server", zap.String("port", cfg.GRPC.Port))
+		logger.Info(ctx, "Starting gRPC server", slog.String("port", cfg.GRPC.Port))
 		if err := grpcSrv.Serve(lis); err != nil {
-			logger.Error("gRPC server error", zap.Error(err))
+			logger.Error(ctx, "gRPC server error", slogx.Err(err))
 		}
 	}()
 
 	return grpcSrv
 }
 
-func initProfiling(cfg *config.Config, logger *zap.Logger) func(context.Context) error {
+func initProfiling(cfg *config.Config, logger *slogx.Logger) func(context.Context) error {
+	ctx := context.Background()
 	if !cfg.Profiling.Enabled {
-		logger.Info("Profiling disabled (PROFILING_ENABLED=false)")
+		logger.Info(ctx, "Profiling disabled (PROFILING_ENABLED=false)")
 		return nil
 	}
 	stopProfiling, err := obsx.SetupProfiling()
 	if err != nil {
-		logger.Warn("Failed to initialize profiling", zap.Error(err))
+		logger.Warn(ctx, "Failed to initialize profiling", slogx.Err(err))
 		return nil
 	}
-	logger.Info("Profiling initialized", zap.String("endpoint", cfg.Profiling.Endpoint))
+	logger.Info(ctx, "Profiling initialized", slog.String("endpoint", cfg.Profiling.Endpoint))
 	return stopProfiling
 }
 
-func setupServer(cfg *config.Config, otelServiceName string, logger *zap.Logger, verifier *authmw.Verifier, isShuttingDown *atomic.Bool, handler *v1.ReviewHandler) *http.Server {
-	r := gin.Default()
+func setupServer(cfg *config.Config, otelServiceName string, logger *slogx.Logger, verifier *authmw.Verifier, isShuttingDown *atomic.Bool, handler *v1.ReviewHandler) *http.Server {
+	// gin.New, not gin.Default: Default installs gin's own logger and
+	// recovery, which print the raw path and client address past the facade.
+	r := gin.New()
 
 	r.Use(httpmw.Tracing(otelServiceName))
-	r.Use(httpmw.Logging(logger))
+	r.Use(httpmw.Logging(logger.Slog()))
+	r.Use(httpmw.Recovery(logger.Slog()))
 
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{"status": "ok"})
@@ -293,26 +289,29 @@ func runGracefulShutdown(
 	grpcSrv *grpc.Server,
 	tp interface{ Shutdown(context.Context) error },
 	pool interface{ Close() },
-	logger *zap.Logger,
+	logger *slogx.Logger,
 	isShuttingDown *atomic.Bool,
 ) {
+	ctx := context.Background()
 	go func() {
-		logger.Info("Starting review service", zap.String("port", cfg.Service.Port))
+		logger.Info(ctx, "Starting review service", slog.String("port", cfg.Service.Port))
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			logger.Error("Failed to start server", zap.Error(err))
+			logger.Error(ctx, "Failed to start server", slogx.Err(err))
 		}
 	}()
 
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
+	logger.ProcessStarted(ctx, slogx.ComponentAPI)
+
+	sigCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
 
-	<-ctx.Done()
-	logger.Info("Shutdown signal received")
+	<-sigCtx.Done()
+	logger.Info(ctx, "Shutdown signal received")
 
 	isShuttingDown.Store(true)
 	drainDelay := cfg.GetReadinessDrainDelayDuration()
 	if drainDelay > 0 {
-		logger.Info("Readiness drain delay started", zap.Duration("delay", drainDelay))
+		logger.Info(ctx, "Readiness drain delay started", slog.Duration("delay", drainDelay))
 		time.Sleep(drainDelay)
 	}
 
@@ -320,31 +319,37 @@ func runGracefulShutdown(
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
 
-	logger.Info("Shutting down server...", zap.Duration("timeout", shutdownTimeout))
+	logger.Info(ctx, "Shutting down server...", slog.Duration("timeout", shutdownTimeout))
 
+	outcome := slogx.OutcomeGraceful
 	if err := srv.Shutdown(shutdownCtx); err != nil {
-		logger.Error("HTTP server shutdown error", zap.Error(err))
+		outcome = slogx.OutcomeError
+		logger.Error(ctx, "HTTP server shutdown error", slogx.Err(err))
 	} else {
-		logger.Info("HTTP server shutdown complete")
+		logger.Info(ctx, "HTTP server shutdown complete")
 	}
 
 	if grpcSrv != nil {
 		grpcSrv.GracefulStop()
-		logger.Info("gRPC server shutdown complete")
+		logger.Info(ctx, "gRPC server shutdown complete")
 	}
 
 	pool.Close()
-	logger.Info("Database pool closed")
+	logger.Info(ctx, "Database pool closed")
+
+	// process.stopped goes out BEFORE the OTel SDK shuts down: a record
+	// emitted after it is dropped rather than exported.
+	logger.ProcessStopped(ctx, slogx.ComponentAPI, outcome)
 
 	// Shutdown the OTel SDK — flushes pending spans plus any OTLP
 	// metrics/logs providers built behind the RFC-0014 flags.
 	if tp != nil {
 		if err := tp.Shutdown(shutdownCtx); err != nil {
-			logger.Error("OpenTelemetry shutdown error", zap.Error(err))
+			logger.Error(ctx, "OpenTelemetry shutdown error", slogx.Err(err))
 		} else {
-			logger.Info("OpenTelemetry shutdown complete")
+			logger.Info(ctx, "OpenTelemetry shutdown complete")
 		}
 	}
 
-	logger.Info("Graceful shutdown complete")
+	logger.Info(ctx, "Graceful shutdown complete")
 }
