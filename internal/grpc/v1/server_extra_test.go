@@ -4,13 +4,12 @@ import (
 	"context"
 	"testing"
 
+	"github.com/duynhlab/pkg/logger/slogx"
 	reviewv1 "github.com/duynhlab/pkg/proto/review/v1"
 	"github.com/duynhlab/review-service/internal/core/domain"
 	"go.opentelemetry.io/otel"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
-	"go.uber.org/zap"
-	"go.uber.org/zap/zaptest/observer"
 )
 
 // TestServer_GetProductReviews_TruncationLogged covers the branches added with
@@ -24,8 +23,7 @@ func TestServer_GetProductReviews_TruncationLogged(t *testing.T) {
 	reader := sdkmetric.NewManualReader()
 	otel.SetMeterProvider(sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader)))
 
-	core, logs := observer.New(zap.WarnLevel)
-	logger := zap.New(core)
+	logger, logs := newObserver("warn")
 
 	reviews := make([]domain.Review, grpcReviewLimit)
 	for i := range reviews {
@@ -71,4 +69,22 @@ func truncatedCount(t *testing.T, reader sdkmetric.Reader) int64 {
 		}
 	}
 	return total
+}
+
+// Without an injected logger the server writes through the facade on the
+// call's context.
+func TestServer_TruncationLogsThroughTheContextFacade(t *testing.T) {
+	logger, logs := newObserver("warn")
+	reviews := make([]domain.Review, grpcReviewLimit)
+	for i := range reviews {
+		reviews[i] = domain.Review{ID: "x", ProductID: "1", UserID: "1", Rating: 5}
+	}
+	srv := NewServer(&listStub{reviews: reviews, total: grpcReviewLimit})
+	ctx := slogx.WithContext(context.Background(), logger)
+	if _, err := srv.GetProductReviews(ctx, &reviewv1.GetProductReviewsRequest{ProductId: "1"}); err != nil {
+		t.Fatal(err)
+	}
+	if logs.FilterMessageSnippet("truncated").Len() == 0 {
+		t.Error("the truncation warning must reach the facade carried by the context")
+	}
 }
