@@ -34,13 +34,15 @@ var (
 		metric.WithExplicitBucketBoundaries(1, 2, 3, 4, 5))
 
 	duplicateRejectedCounter, _ = meter.Int64Counter("reviews.duplicate_rejected.total",
-		metric.WithDescription("Review creates rejected as duplicates (pre-check + unique-violation race)"))
+		metric.WithDescription("Review creates rejected as duplicates (pre-check + unique-violation race)"),
+		metric.WithUnit("{review}"))
 
 	// Fires when a response fills the page cap. This over-counts by one edge
 	// case: a product with exactly the cap and no dropped reviews still counts,
 	// since a full page is indistinguishable from a truncated one.
 	reviewsTruncatedCounter, _ = meter.Int64Counter("grpc.reviews_truncated.total",
-		metric.WithDescription("GetProductReviews responses that filled the page cap (possible silent data loss)"))
+		metric.WithDescription("GetProductReviews responses that filled the page cap (possible silent data loss)"),
+		metric.WithUnit("{response}"))
 )
 
 // recordReviewRating records one successful review's star rating. Rating is a
