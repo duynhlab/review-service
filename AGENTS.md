@@ -36,7 +36,7 @@ gateway routing, NetworkPolicy and platform observability belong to
 
 ## Code quality
 
-- Go 1.26 (`go.mod` pins the toolchain; `GOTOOLCHAIN=auto` selects it).
+- Go 1.27 (`go.mod` pins the toolchain; `GOTOOLCHAIN=auto` selects it).
 - Idiomatic Go: small interfaces, constructor injection, wrapped errors
   (`fmt.Errorf("...: %w", err)`), sentinel errors in `internal/logic/v1/errors.go`.
 - Always check error returns (or explicit `_ = fn()`).
