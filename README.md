@@ -15,7 +15,7 @@ the read path that serves them to the storefront and to product-service.
 
 | Area | Technology |
 |------|------------|
-| Runtime | Go 1.26 |
+| Runtime | Go 1.27 |
 | Transports | HTTP (public read, private write) · gRPC (east-west read) |
 | Data | PostgreSQL — one table, `reviews` |
 | Platform libraries | `authmw`, `dbx`, `grpcx`, `httpx`, `logger/zapx`, `migratex`, `obsx`, `proto` |
