@@ -25,7 +25,7 @@ jobs:
       policy-lint: true
       policy-lint-blocking: true
       integration: true
-      integration-command: 'go test -tags=integration -covermode=atomic -coverprofile=coverage-integration.out ./internal/core/repository/...'
+      integration-command: 'go test -tags=integration -covermode=atomic -coverprofile=coverage-integration.out ./internal/core/repository/... ./db/seed/...'
 
   gitleaks:
     uses: duynhlab/gha-workflows/.github/workflows/gitleaks.yml@cdd4b45a734523839bfb27557627f95dc9fdfbcb # main
