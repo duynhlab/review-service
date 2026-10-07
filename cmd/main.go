@@ -3,22 +3,16 @@ package main
 import (
 	"context"
 	"errors"
-	"fmt"
-	"io/fs"
 	"log/slog"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
-	"sort"
-	"strings"
 	"sync/atomic"
 	"syscall"
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"google.golang.org/grpc"
 
 	"github.com/duynhlab/pkg/authmw"
@@ -141,7 +135,10 @@ func runSubcommand(cmd string, cfg *config.Config, logger *slogx.Logger) bool {
 	ctx := context.Background()
 	switch cmd {
 	case "migrate":
-		if err := migratex.Run(migrations.FS, "sql", cfg.Database.BuildDSN()); err != nil {
+		// Passed unconditionally: an unset DB_MIGRATION_ROLE fails the run
+		// instead of migrating as the migrator login.
+		if err := migratex.Run(migrations.FS, "sql", cfg.Database.BuildDSN(),
+			migratex.WithSetRole(cfg.Database.MigrationRole)); err != nil {
 			logger.Fatal(ctx, "Schema migration failed", slogx.Err(err))
 		}
 		logger.Info(ctx, "Schema migrations applied")
@@ -151,7 +148,7 @@ func runSubcommand(cmd string, cfg *config.Config, logger *slogx.Logger) bool {
 		if cfg.IsProduction() {
 			logger.Fatal(ctx, "seed refused in production — demo data is dev-only")
 		}
-		if err := applySeed(cfg); err != nil {
+		if err := seed.Apply(ctx, cfg.Database.BuildDSN(), cfg.Database.MigrationRole); err != nil {
 			logger.Fatal(ctx, "Demo seed failed", slogx.Err(err))
 		}
 		logger.Info(ctx, "Demo seed data applied")
@@ -159,49 +156,6 @@ func runSubcommand(cmd string, cfg *config.Config, logger *slogx.Logger) bool {
 	default:
 		return false
 	}
-}
-
-// applySeed executes the embedded dev-only seed SQL directly against the database.
-// It does NOT use golang-migrate: seeds are idempotent (ON CONFLICT) and must not
-// share the schema_migrations version table with the schema migrations. Simple
-// query protocol lets each multi-statement seed file run in one Exec.
-func applySeed(cfg *config.Config) error {
-	ctx := context.Background()
-
-	poolCfg, err := pgxpool.ParseConfig(cfg.Database.BuildDSN())
-	if err != nil {
-		return fmt.Errorf("parse seed DSN: %w", err)
-	}
-	poolCfg.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
-
-	pool, err := pgxpool.NewWithConfig(ctx, poolCfg)
-	if err != nil {
-		return fmt.Errorf("connect for seed: %w", err)
-	}
-	defer pool.Close()
-
-	entries, err := fs.ReadDir(seed.FS, "sql")
-	if err != nil {
-		return fmt.Errorf("read seed dir: %w", err)
-	}
-	names := make([]string, 0, len(entries))
-	for _, e := range entries {
-		if strings.HasSuffix(e.Name(), ".up.sql") {
-			names = append(names, e.Name())
-		}
-	}
-	sort.Strings(names)
-
-	for _, name := range names {
-		b, readErr := fs.ReadFile(seed.FS, "sql/"+name)
-		if readErr != nil {
-			return fmt.Errorf("read seed %s: %w", name, readErr)
-		}
-		if _, execErr := pool.Exec(ctx, string(b)); execErr != nil {
-			return fmt.Errorf("apply seed %s: %w", name, execErr)
-		}
-	}
-	return nil
 }
 
 // startGRPC starts the internal gRPC server on cfg.GRPC.Port, serving
