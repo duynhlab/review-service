@@ -37,12 +37,19 @@ change when they change.
 Prefer the homelab **local-stack** — reviews are most useful with a product
 catalog and a signed token in front of them.
 
-Standalone you need PostgreSQL reachable through the `DB_*` variables:
+Standalone you need PostgreSQL reachable through the `DB_*` variables and three
+roles: `review_owner` (owns the schema, cannot log in), `review_migrator` (logs
+in, may only `SET ROLE review_owner`) and `review_runtime` (serves traffic, CRUD
+only). `migrate` and `seed` log in as the migrator and need
+`DB_MIGRATION_ROLE=review_owner`; they refuse to run without it, and they must
+reach PostgreSQL directly, not through a transaction pooler. The app logs in as
+`review_runtime`. `review_owner` must own the `review` database: on PostgreSQL
+15+ that is what lets it create objects in the `public` schema.
 
 ```bash
-go run cmd/main.go migrate   # apply schema migrations
-go run cmd/main.go seed      # demo reviews — development only, refuses production
-go run cmd/main.go           # serve HTTP :8080 + gRPC :9090
+DB_USER=review_migrator DB_MIGRATION_ROLE=review_owner go run cmd/main.go migrate
+DB_USER=review_migrator DB_MIGRATION_ROLE=review_owner go run cmd/main.go seed   # development only
+DB_USER=review_runtime go run cmd/main.go   # serve HTTP :8080 + gRPC :9090
 ```
 
 ## Verify
