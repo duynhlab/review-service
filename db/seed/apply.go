@@ -2,7 +2,6 @@ package seed
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io/fs"
 	"sort"
@@ -16,27 +15,14 @@ import (
 // golang-migrate: seeds are idempotent (ON CONFLICT) and must not share the
 // schema_migrations version table with the schema migrations. Simple query
 // protocol lets each multi-statement file run in one Exec.
-//
-// Like migrate, it logs in as the migrator and switches to role, the schema
-// owner, on every connection: the seed's setval needs UPDATE on the sequence,
-// which the runtime login does not have. An empty role fails before connecting,
-// and a denied SET ROLE fails the run; there is no fallback to the login.
-func Apply(ctx context.Context, dsn, role string) error {
-	if role == "" {
-		return errors.New("seed: DB_MIGRATION_ROLE is not set")
-	}
+// Run it with the same login as migrate: the seed's setval needs UPDATE on the
+// sequence.
+func Apply(ctx context.Context, dsn string) error {
 	poolCfg, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
 		return fmt.Errorf("parse seed DSN: %w", err)
 	}
 	poolCfg.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
-	setRole := "SET ROLE " + pgx.Identifier{role}.Sanitize()
-	poolCfg.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
-		if _, err := conn.Exec(ctx, setRole); err != nil {
-			return fmt.Errorf("seed: SET ROLE %s: %w", role, err)
-		}
-		return nil
-	}
 
 	pool, err := pgxpool.NewWithConfig(ctx, poolCfg)
 	if err != nil {

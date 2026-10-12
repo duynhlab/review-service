@@ -135,10 +135,7 @@ func runSubcommand(cmd string, cfg *config.Config, logger *slogx.Logger) bool {
 	ctx := context.Background()
 	switch cmd {
 	case "migrate":
-		// Passed unconditionally: an unset DB_MIGRATION_ROLE fails the run
-		// instead of migrating as the migrator login.
-		if err := migratex.Run(migrations.FS, "sql", cfg.Database.BuildDSN(),
-			migratex.WithSetRole(cfg.Database.MigrationRole)); err != nil {
+		if err := migratex.Run(migrations.FS, "sql", cfg.Database.BuildDSN()); err != nil {
 			logger.Fatal(ctx, "Schema migration failed", slogx.Err(err))
 		}
 		logger.Info(ctx, "Schema migrations applied")
@@ -148,7 +145,7 @@ func runSubcommand(cmd string, cfg *config.Config, logger *slogx.Logger) bool {
 		if cfg.IsProduction() {
 			logger.Fatal(ctx, "seed refused in production — demo data is dev-only")
 		}
-		if err := seed.Apply(ctx, cfg.Database.BuildDSN(), cfg.Database.MigrationRole); err != nil {
+		if err := seed.Apply(ctx, cfg.Database.BuildDSN()); err != nil {
 			logger.Fatal(ctx, "Demo seed failed", slogx.Err(err))
 		}
 		logger.Info(ctx, "Demo seed data applied")

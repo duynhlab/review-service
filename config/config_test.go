@@ -43,7 +43,7 @@ func TestBuildDSN_EscapesCredentials(t *testing.T) {
 
 func TestLoad_Defaults(t *testing.T) {
 	// Empty value makes getEnv* fall back to the default.
-	for _, k := range []string{"SERVICE_NAME", "PORT", "ENV", "TRACING_ENABLED", "OTEL_SAMPLE_RATE", "DB_HOST", "DB_POOL_MAX_CONNECTIONS", "DB_MIGRATION_ROLE"} {
+	for _, k := range []string{"SERVICE_NAME", "PORT", "ENV", "TRACING_ENABLED", "OTEL_SAMPLE_RATE", "DB_HOST", "DB_POOL_MAX_CONNECTIONS"} {
 		t.Setenv(k, "")
 	}
 	cfg := Load()
@@ -67,9 +67,6 @@ func TestLoad_Defaults(t *testing.T) {
 	}
 	if cfg.OIDCJWKSURL != "" {
 		t.Errorf("default OIDCJWKSURL = %q, want empty (derived from issuer)", cfg.OIDCJWKSURL)
-	}
-	if cfg.Database.MigrationRole != "" {
-		t.Errorf("default MigrationRole = %q, want empty (migrate then fails)", cfg.Database.MigrationRole)
 	}
 }
 
@@ -97,7 +94,6 @@ func TestLoad_Overrides(t *testing.T) {
 	t.Setenv("TRACING_ENABLED", "false")
 	t.Setenv("OTEL_SAMPLE_RATE", "0.5")
 	t.Setenv("DB_POOL_MAX_CONNECTIONS", "not-a-number") // invalid → falls back to default
-	t.Setenv("DB_MIGRATION_ROLE", "review_owner")
 
 	cfg := Load()
 	if cfg.Service.Name != "review" || cfg.Service.Port != "9999" || cfg.Service.Env != "production" {
@@ -111,9 +107,6 @@ func TestLoad_Overrides(t *testing.T) {
 	}
 	if cfg.Database.MaxConnections != 25 {
 		t.Errorf("invalid int env should fall back to 25, got %d", cfg.Database.MaxConnections)
-	}
-	if cfg.Database.MigrationRole != "review_owner" {
-		t.Errorf("MigrationRole = %q, want review_owner", cfg.Database.MigrationRole)
 	}
 }
 
